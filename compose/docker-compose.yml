@@ -15,6 +15,7 @@ services:
       - "3000:8080"
     environment:
       OLLAMA_BASE_URL: http://ollama:11434
+      WEBUI_AUTH: false
     volumes:
       - open_webui_data:/app/backend/data
     depends_on:
