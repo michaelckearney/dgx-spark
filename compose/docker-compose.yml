@@ -1,6 +1,6 @@
 services:
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.18.2
     restart: unless-stopped
     ports:
       - "11434:11434"
@@ -9,7 +9,7 @@ services:
     gpus: all
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+    image: ghcr.io/open-webui/open-webui:v0.8.10
     restart: unless-stopped
     ports:
       - "3000:8080"
