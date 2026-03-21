@@ -8,6 +8,7 @@ The target machine must have the following already installed:
 - `curl`
 - `sudo` (with privileges for the current user)
 - `python3`
+- Docker (pre-installed on the DGX Spark)
 
 These are pre-installed on the DGX Spark (Ubuntu-based).
 
@@ -25,7 +26,7 @@ This will:
 2. Run `ansible-pull`, which:
    - Clones the repository to `/opt/dgx-spark`
    - Runs the Ansible playbook, which:
-     - Installs Docker CE
+     - Adds the target user to the `docker` group (Docker itself is pre-installed)
      - Installs chezmoi and applies dotfiles (`~/.bashrc`)
      - Installs a systemd timer for automatic reconciliation
 
@@ -80,8 +81,7 @@ This is idempotent and safe to run at any time.
 
 | Component | Details |
 |---|---|
-| Docker CE | Installed from official Docker apt repository, service enabled |
-| Docker group | Target user added to `docker` group |
+| Docker group | Target user added to `docker` group (Docker is pre-installed, not modified) |
 | chezmoi | Installed to `/usr/local/bin/chezmoi` |
 | Reconcile timer | systemd timer running `ansible-pull` every minute |
 
@@ -90,6 +90,15 @@ This is idempotent and safe to run at any time.
 | File | Source |
 |---|---|
 | `~/.bashrc` | `chezmoi/dot_bashrc` in this repo |
+
+### What is NOT modified
+
+The following pre-installed components are **not touched** by this playbook:
+
+- Docker CE (pre-installed on DGX Spark)
+- NVIDIA Container Toolkit / Runtime
+- NVIDIA drivers and CUDA
+- System kernel and firmware
 
 ## Adding New Configuration
 

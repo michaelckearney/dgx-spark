@@ -19,14 +19,14 @@ The system has three layers:
 | Layer | Tool | Scope |
 |---|---|---|
 | **Bootstrap** | `bash` | Install Ansible, invoke `ansible-pull` |
-| **System config** | Ansible (`ansible-pull`) | Packages, services, Docker, developer tooling |
+| **System config** | Ansible (`ansible-pull`) | User permissions, services, developer tooling |
 | **User config** | chezmoi | Dotfiles (`~/.bashrc`, etc.) |
 
 ### How it works
 
 1. **Bootstrap** installs Ansible and runs `ansible-pull` once
 2. **`ansible-pull`** clones this repo to `/opt/dgx-spark` and runs the playbook
-3. **The playbook** configures Docker, installs chezmoi, applies dotfiles, and sets up a systemd timer
+3. **The playbook** configures Docker group access, installs chezmoi, applies dotfiles, and sets up a systemd timer
 4. **The timer** runs `ansible-pull` every minute going forward — the system is self-managing
 
 ## Repository Structure
@@ -37,7 +37,7 @@ The system has three layers:
 │   ├── playbook.yml                                # Main playbook
 │   ├── group_vars/all.yml                          # Shared variables
 │   └── roles/
-│       ├── docker/tasks/main.yml                   # Docker CE installation
+│       ├── docker/tasks/main.yml                   # Docker group membership
 │       ├── chezmoi/tasks/main.yml                  # chezmoi install + apply
 │       └── reconcile/
 │           ├── tasks/main.yml                      # systemd timer setup
@@ -53,9 +53,9 @@ The system has three layers:
 
 ## What It Configures
 
-- **Docker CE** — installed from official apt repository, service enabled, user added to `docker` group
+- **Docker group** — adds target user to `docker` group for sudo-less access (Docker itself is pre-installed on the DGX Spark)
 - **chezmoi** — installed to `/usr/local/bin`, applies dotfiles from this repo
-- **`~/.bashrc`** — managed shell configuration with sensible defaults
+- **`~/.bashrc`** — managed shell configuration
 - **Reconcile timer** — systemd timer that runs `ansible-pull` every minute
 
 ## Automatic Reconciliation
@@ -78,4 +78,4 @@ See [docs/setup.md](docs/setup.md) for detailed setup instructions, troubleshoot
 - **Self-managing** — after bootstrap, the system auto-reconciles with the repo
 - **Separation of concerns** — system config (Ansible) vs user config (chezmoi)
 - **Minimal bootstrap** — the shell script is thin; all logic lives in Ansible
-- **Reproducible** — a fresh machine can be fully configured from this repo alone
+- **Non-destructive** — does not reinstall or modify pre-installed system software (Docker, NVIDIA drivers, etc.)
