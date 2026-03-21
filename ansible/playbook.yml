@@ -7,5 +7,6 @@
 
   roles:
     - docker
+    - compose
     - chezmoi
     - reconcile

@@ -13,3 +13,7 @@ target_home: "/home/{{ target_user }}"
 
 # chezmoi source directory within the repo
 chezmoi_source: "{{ repo_dir }}/chezmoi"
+
+# Docker Compose variables
+compose_stack_dir: "{{ repo_dir }}/compose"
+compose_project_name: "dgx-spark"

@@ -1,0 +1,23 @@
+---
+- name: Verify Docker Compose plugin is installed
+  ansible.builtin.command: docker compose version
+  register: docker_compose_version
+  changed_when: false
+  failed_when: docker_compose_version.rc != 0
+
+- name: Deploy local AI stack with Docker Compose
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --project-name
+      - "{{ compose_project_name }}"
+      - --file
+      - "{{ compose_stack_dir }}/docker-compose.yml"
+      - up
+      - -d
+      - --remove-orphans
+  args:
+    chdir: "{{ compose_stack_dir }}"
+  register: compose_up
+  changed_when: false
