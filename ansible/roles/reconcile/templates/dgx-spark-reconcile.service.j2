@@ -1,0 +1,14 @@
+[Unit]
+Description=DGX Spark configuration reconcile (ansible-pull)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ansible-pull \
+    --url {{ repo_url }} \
+    --checkout {{ repo_branch }} \
+    --directory {{ repo_dir }} \
+    --extra-vars "target_user={{ target_user }} target_home={{ target_home }}" \
+    ansible/playbook.yml
+Environment=HOME={{ target_home }}

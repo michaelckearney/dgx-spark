@@ -1,0 +1,31 @@
+---
+# Role: reconcile
+# Sets up a systemd timer that runs ansible-pull every minute to
+# automatically reconcile the system with the Git repository.
+
+- name: Install dgx-spark-reconcile systemd service
+  ansible.builtin.template:
+    src: dgx-spark-reconcile.service.j2
+    dest: /etc/systemd/system/dgx-spark-reconcile.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: Install dgx-spark-reconcile systemd timer
+  ansible.builtin.template:
+    src: dgx-spark-reconcile.timer.j2
+    dest: /etc/systemd/system/dgx-spark-reconcile.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload systemd
+
+- name: Flush handlers to reload systemd before enabling timer
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the reconcile timer
+  ansible.builtin.systemd:
+    name: dgx-spark-reconcile.timer
+    enabled: true
+    state: started

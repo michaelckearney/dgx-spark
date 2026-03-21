@@ -1,6 +1,15 @@
 # Shared variables for all hosts
-# target_user: the user account to configure (defaults to the invoking user)
+
+# Git repository URL (used by ansible-pull and the reconcile timer)
+repo_url: "https://github.com/michaelckearney/dgx-spark.git"
+repo_branch: "main"
+
+# Where ansible-pull clones the repo (system-level, owned by root)
+repo_dir: "/opt/dgx-spark"
+
+# Target user to configure (overridden via --extra-vars in bootstrap)
 target_user: "{{ ansible_user_id }}"
-target_home: "{{ ansible_env.HOME }}"
-repo_dir: "{{ target_home }}/dgx-spark"
+target_home: "/home/{{ target_user }}"
+
+# chezmoi source directory within the repo
 chezmoi_source: "{{ repo_dir }}/chezmoi"

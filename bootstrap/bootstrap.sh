@@ -4,22 +4,12 @@
 set -euo pipefail
 
 REPO_URL="https://github.com/michaelckearney/dgx-spark.git"
-REPO_DIR="${HOME}/dgx-spark"
-ANSIBLE_DIR="${REPO_DIR}/ansible"
+PLAYBOOK="ansible/playbook.yml"
 
 echo "==> DGX Spark bootstrap starting..."
 
-# --- Clone or update the repository ---
-if [ -d "${REPO_DIR}/.git" ]; then
-    echo "==> Repository exists at ${REPO_DIR}, pulling latest changes..."
-    git -C "${REPO_DIR}" pull --ff-only
-else
-    echo "==> Cloning repository to ${REPO_DIR}..."
-    git clone "${REPO_URL}" "${REPO_DIR}"
-fi
-
 # --- Install Ansible if not present ---
-if ! command -v ansible-playbook &>/dev/null; then
+if ! command -v ansible-pull &>/dev/null; then
     echo "==> Ansible not found, installing..."
     sudo apt-get update -qq
     sudo apt-get install -y -qq software-properties-common
@@ -29,11 +19,15 @@ else
     echo "==> Ansible is already installed."
 fi
 
-# --- Run the Ansible playbook ---
-echo "==> Running Ansible playbook..."
-ansible-playbook \
-    --inventory "${ANSIBLE_DIR}/inventory.ini" \
-    --ask-become-pass \
-    "${ANSIBLE_DIR}/playbook.yml"
+# --- Run ansible-pull to clone repo and apply playbook ---
+echo "==> Running ansible-pull..."
+sudo ansible-pull \
+    --url "${REPO_URL}" \
+    --checkout main \
+    --directory /opt/dgx-spark \
+    --extra-vars "target_user=$(whoami) target_home=${HOME}" \
+    "${PLAYBOOK}"
 
 echo "==> Bootstrap complete."
+echo "==> A systemd timer is now active and will auto-reconcile every minute."
+echo "==> Check status: systemctl status dgx-spark-reconcile.timer"

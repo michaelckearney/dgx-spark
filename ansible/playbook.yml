@@ -1,9 +1,11 @@
 ---
 - name: Configure DGX Spark workstation
-  hosts: local
+  hosts: localhost
+  connection: local
   become: true
   gather_facts: true
 
   roles:
     - docker
     - chezmoi
+    - reconcile

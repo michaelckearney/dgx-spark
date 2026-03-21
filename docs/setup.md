@@ -21,31 +21,58 @@ curl -fsSL https://raw.githubusercontent.com/michaelckearney/dgx-spark/main/boot
 
 This will:
 
-1. Clone the repository to `~/dgx-spark`
-2. Install Ansible if it's not already present
-3. Run the Ansible playbook, which:
-   - Installs Docker CE
-   - Installs chezmoi and applies dotfiles (`~/.bashrc`)
+1. Install Ansible if it's not already present
+2. Run `ansible-pull`, which:
+   - Clones the repository to `/opt/dgx-spark`
+   - Runs the Ansible playbook, which:
+     - Installs Docker CE
+     - Installs chezmoi and applies dotfiles (`~/.bashrc`)
+     - Installs a systemd timer for automatic reconciliation
 
-You will be prompted for your sudo password (via `--ask-become-pass`).
+After the first run, the system is **self-managing** — a systemd timer runs `ansible-pull` every minute to pull changes and re-apply the playbook.
 
-## Re-running (Reconcile Drift)
+## Automatic Reconciliation
 
-To re-apply the full configuration at any time:
+After bootstrap, a systemd timer (`dgx-spark-reconcile.timer`) runs every minute. It:
+
+1. Pulls the latest changes from the Git repository
+2. Runs the full Ansible playbook (only if changes are detected)
+3. Applies any new system or user configuration
+
+### Checking timer status
+
+```bash
+systemctl status dgx-spark-reconcile.timer
+```
+
+### Viewing reconcile logs
+
+```bash
+journalctl -u dgx-spark-reconcile.service -f
+```
+
+### Manually triggering a reconcile
+
+```bash
+sudo systemctl start dgx-spark-reconcile.service
+```
+
+### Disabling automatic reconciliation
+
+```bash
+sudo systemctl stop dgx-spark-reconcile.timer
+sudo systemctl disable dgx-spark-reconcile.timer
+```
+
+## Manual Re-run
+
+You can always re-run the bootstrap command to force a full reconciliation:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/michaelckearney/dgx-spark/main/bootstrap/bootstrap.sh | bash
 ```
 
-Or, if the repo is already cloned:
-
-```bash
-cd ~/dgx-spark
-git pull
-ansible-playbook --inventory ansible/inventory.ini --ask-become-pass ansible/playbook.yml
-```
-
-Both approaches are idempotent and safe to run repeatedly.
+This is idempotent and safe to run at any time.
 
 ## What Gets Configured
 
@@ -56,6 +83,7 @@ Both approaches are idempotent and safe to run repeatedly.
 | Docker CE | Installed from official Docker apt repository, service enabled |
 | Docker group | Target user added to `docker` group |
 | chezmoi | Installed to `/usr/local/bin/chezmoi` |
+| Reconcile timer | systemd timer running `ansible-pull` every minute |
 
 ### User Level (chezmoi)
 
@@ -66,14 +94,14 @@ Both approaches are idempotent and safe to run repeatedly.
 ## Adding New Configuration
 
 ### New system package or service
-Add a new Ansible role under `ansible/roles/` and include it in `ansible/playbook.yml`.
+Add a new Ansible role under `ansible/roles/` and include it in `ansible/playbook.yml`. The change will be picked up automatically within a minute.
 
 ### New dotfile
 Add a new file to the `chezmoi/` directory following [chezmoi naming conventions](https://www.chezmoi.io/reference/source-state-attributes/):
 - `dot_` prefix → `.` in the target (e.g., `dot_gitconfig` → `~/.gitconfig`)
 - `private_` prefix → file permissions set to `0600`
 
-Then re-run the bootstrap or `chezmoi apply`.
+Push to the repo and the reconcile timer will apply it automatically.
 
 ## Troubleshooting
 
@@ -87,7 +115,13 @@ sudo apt-get update && sudo apt-get install -y software-properties-common
 ```
 
 ### chezmoi conflicts
-If chezmoi detects conflicts with existing files, it will prompt for resolution. You can force-apply with:
+If chezmoi detects conflicts with existing files, you can force-apply with:
 ```bash
 chezmoi apply --force
+```
+
+### Timer not running
+```bash
+systemctl status dgx-spark-reconcile.timer
+journalctl -u dgx-spark-reconcile.service --no-pager -n 50
 ```

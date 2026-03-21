@@ -10,7 +10,7 @@ This repository is the **single source of truth** for fully configuring the mach
 curl -fsSL https://raw.githubusercontent.com/michaelckearney/dgx-spark/main/bootstrap/bootstrap.sh | bash
 ```
 
-That's it. One command bootstraps everything.
+That's it. One command bootstraps everything. After the first run, a systemd timer automatically reconciles the system with this repo every minute.
 
 ## Architecture
 
@@ -18,25 +18,37 @@ The system has three layers:
 
 | Layer | Tool | Scope |
 |---|---|---|
-| **Bootstrap** | `bash` | Clone repo, install Ansible, invoke playbook |
-| **System config** | Ansible | Packages, services, Docker, developer tooling |
+| **Bootstrap** | `bash` | Install Ansible, invoke `ansible-pull` |
+| **System config** | Ansible (`ansible-pull`) | Packages, services, Docker, developer tooling |
 | **User config** | chezmoi | Dotfiles (`~/.bashrc`, etc.) |
+
+### How it works
+
+1. **Bootstrap** installs Ansible and runs `ansible-pull` once
+2. **`ansible-pull`** clones this repo to `/opt/dgx-spark` and runs the playbook
+3. **The playbook** configures Docker, installs chezmoi, applies dotfiles, and sets up a systemd timer
+4. **The timer** runs `ansible-pull` every minute going forward — the system is self-managing
 
 ## Repository Structure
 
 ```
-├── bootstrap/bootstrap.sh          # Single entrypoint script
+├── bootstrap/bootstrap.sh                          # Single entrypoint script
 ├── ansible/
-│   ├── inventory.ini               # Localhost inventory
-│   ├── playbook.yml                # Main playbook
-│   ├── group_vars/all.yml          # Shared variables
+│   ├── playbook.yml                                # Main playbook
+│   ├── group_vars/all.yml                          # Shared variables
 │   └── roles/
-│       ├── docker/tasks/main.yml   # Docker CE installation
-│       └── chezmoi/tasks/main.yml  # chezmoi install + apply
+│       ├── docker/tasks/main.yml                   # Docker CE installation
+│       ├── chezmoi/tasks/main.yml                  # chezmoi install + apply
+│       └── reconcile/
+│           ├── tasks/main.yml                      # systemd timer setup
+│           ├── handlers/main.yml                   # systemd reload handler
+│           └── templates/
+│               ├── dgx-spark-reconcile.service.j2  # oneshot service unit
+│               └── dgx-spark-reconcile.timer.j2    # 1-minute timer unit
 ├── chezmoi/
-│   └── dot_bashrc                  # Managed ~/.bashrc
+│   └── dot_bashrc                                  # Managed ~/.bashrc
 └── docs/
-    └── setup.md                    # Detailed setup guide
+    └── setup.md                                    # Detailed setup guide
 ```
 
 ## What It Configures
@@ -44,13 +56,15 @@ The system has three layers:
 - **Docker CE** — installed from official apt repository, service enabled, user added to `docker` group
 - **chezmoi** — installed to `/usr/local/bin`, applies dotfiles from this repo
 - **`~/.bashrc`** — managed shell configuration with sensible defaults
+- **Reconcile timer** — systemd timer that runs `ansible-pull` every minute
 
-## Re-running
+## Automatic Reconciliation
 
-Safe to re-run at any time to reconcile drift:
+After bootstrap, push changes to this repo and they'll be applied within a minute. Check status:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/michaelckearney/dgx-spark/main/bootstrap/bootstrap.sh | bash
+systemctl status dgx-spark-reconcile.timer    # timer status
+journalctl -u dgx-spark-reconcile.service -f  # live logs
 ```
 
 ## Documentation
@@ -61,6 +75,7 @@ See [docs/setup.md](docs/setup.md) for detailed setup instructions, troubleshoot
 
 - **Idempotent** — every operation is safe to repeat
 - **Declarative** — configuration is defined in code, not applied manually
+- **Self-managing** — after bootstrap, the system auto-reconciles with the repo
 - **Separation of concerns** — system config (Ansible) vs user config (chezmoi)
 - **Minimal bootstrap** — the shell script is thin; all logic lives in Ansible
 - **Reproducible** — a fresh machine can be fully configured from this repo alone
