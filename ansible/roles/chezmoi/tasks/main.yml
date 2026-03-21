@@ -1,0 +1,25 @@
+---
+# Role: chezmoi
+# Installs chezmoi and applies user-level dotfiles from the repo.
+
+- name: Check if chezmoi is installed
+  ansible.builtin.command: which chezmoi
+  register: chezmoi_check
+  changed_when: false
+  failed_when: false
+
+- name: Install chezmoi
+  ansible.builtin.shell: |
+    curl -fsLS get.chezmoi.io | sh -s -- -b /usr/local/bin
+  args:
+    creates: /usr/local/bin/chezmoi
+  when: chezmoi_check.rc != 0
+
+- name: Initialize chezmoi with repo source directory
+  ansible.builtin.command:
+    cmd: chezmoi init --source "{{ chezmoi_source }}" --apply
+  become: true
+  become_user: "{{ target_user }}"
+  environment:
+    HOME: "{{ target_home }}"
+  changed_when: true

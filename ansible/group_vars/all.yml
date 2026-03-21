@@ -1,0 +1,6 @@
+# Shared variables for all hosts
+# target_user: the user account to configure (defaults to the invoking user)
+target_user: "{{ ansible_user_id }}"
+target_home: "{{ ansible_env.HOME }}"
+repo_dir: "{{ target_home }}/dgx-spark"
+chezmoi_source: "{{ repo_dir }}/chezmoi"
