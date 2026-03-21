@@ -1,63 +1,14 @@
 ---
 # Role: docker
-# Installs Docker CE from the official Docker apt repository.
+# Ensures Docker is configured for the target user.
+# Docker itself is pre-installed on the DGX Spark — this role does NOT install it.
+# It only adds the target user to the docker group for sudo-less access.
 
-- name: Install prerequisite packages
-  ansible.builtin.apt:
-    name:
-      - ca-certificates
-      - curl
-      - gnupg
-    state: present
-    update_cache: true
-
-- name: Create keyrings directory
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    mode: "0755"
-
-- name: Add Docker GPG key
-  ansible.builtin.get_url:
-    url: https://download.docker.com/linux/ubuntu/gpg
-    dest: /etc/apt/keyrings/docker.asc
-    mode: "0644"
-    force: false
-
-- name: Get system architecture
-  ansible.builtin.command: dpkg --print-architecture
-  register: dpkg_arch
+- name: Verify Docker is installed
+  ansible.builtin.command: docker --version
+  register: docker_version
   changed_when: false
-
-- name: Get Ubuntu codename
-  ansible.builtin.command: lsb_release -cs
-  register: ubuntu_codename
-  changed_when: false
-
-- name: Add Docker apt repository
-  ansible.builtin.apt_repository:
-    repo: >-
-      deb [arch={{ dpkg_arch.stdout }} signed-by=/etc/apt/keyrings/docker.asc]
-      https://download.docker.com/linux/ubuntu {{ ubuntu_codename.stdout }} stable
-    filename: docker
-    state: present
-
-- name: Install Docker packages
-  ansible.builtin.apt:
-    name:
-      - docker-ce
-      - docker-ce-cli
-      - containerd.io
-      - docker-buildx-plugin
-      - docker-compose-plugin
-    state: present
-    update_cache: true
-
-- name: Ensure Docker service is enabled and started
-  ansible.builtin.systemd:
-    name: docker
-    enabled: true
-    state: started
+  failed_when: docker_version.rc != 0
 
 - name: Add target user to docker group
   ansible.builtin.user:
