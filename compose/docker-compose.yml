@@ -1,4 +1,13 @@
 services:
+  qdrant:
+    image: qdrant/qdrant:v1.15.4
+    restart: unless-stopped
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
   ollama:
     image: ollama/ollama:0.18.2
     restart: unless-stopped
@@ -22,5 +31,6 @@ services:
       - ollama
 
 volumes:
+  qdrant_data:
   ollama_data:
   open_webui_data:
