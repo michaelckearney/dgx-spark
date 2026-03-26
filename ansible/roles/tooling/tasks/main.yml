@@ -2,7 +2,43 @@
 # Role: tooling
 # Installs baseline CLI tooling expected on the workstation.
 
-- name: Install Vim
+- name: Install baseline shell tooling packages
   ansible.builtin.package:
-    name: vim
+    name:
+      - vim
+      - zsh
+      - git
     state: present
+
+- name: Ensure target user's login shell is zsh
+  ansible.builtin.user:
+    name: "{{ target_user }}"
+    shell: /usr/bin/zsh
+
+- name: Ensure Oh My Zsh custom themes directory exists
+  ansible.builtin.file:
+    path: "{{ target_home }}/.oh-my-zsh/custom/themes"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0755"
+
+- name: Install Oh My Zsh
+  ansible.builtin.git:
+    repo: https://github.com/ohmyzsh/ohmyzsh.git
+    dest: "{{ target_home }}/.oh-my-zsh"
+    version: master
+    depth: 1
+    update: false
+  become: true
+  become_user: "{{ target_user }}"
+
+- name: Install Powerlevel10k theme for Oh My Zsh
+  ansible.builtin.git:
+    repo: https://github.com/romkatv/powerlevel10k.git
+    dest: "{{ target_home }}/.oh-my-zsh/custom/themes/powerlevel10k"
+    version: master
+    depth: 1
+    update: true
+  become: true
+  become_user: "{{ target_user }}"
