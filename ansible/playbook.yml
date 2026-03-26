@@ -8,5 +8,6 @@
   roles:
     - docker
     - compose
+    - tooling
     - chezmoi
     - reconcile

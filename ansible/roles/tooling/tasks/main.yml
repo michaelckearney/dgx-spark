@@ -1,0 +1,8 @@
+---
+# Role: tooling
+# Installs baseline CLI tooling expected on the workstation.
+
+- name: Install Vim
+  ansible.builtin.package:
+    name: vim
+    state: present

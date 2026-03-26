@@ -30,7 +30,23 @@ services:
     depends_on:
       - ollama
 
+  personaplex:
+    build:
+      context: ./personaplex
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8998:8998"
+    environment:
+      NO_TORCH_COMPILE: "1"
+    env_file:
+      - ./.env.personaplex
+    volumes:
+      - personaplex_cache:/root/.cache
+    gpus: all
+
 volumes:
   qdrant_data:
   ollama_data:
   open_webui_data:
+  personaplex_cache:

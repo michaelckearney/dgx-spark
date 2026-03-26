@@ -54,6 +54,7 @@ The system has three layers:
 ## What It Configures
 
 - **Docker group** — adds target user to `docker` group for sudo-less access (Docker itself is pre-installed on the DGX Spark)
+- **CLI tooling** — installs Vim for terminal editing
 - **chezmoi** — installed to `/usr/local/bin`, applies dotfiles from this repo
 - **`~/.bashrc`** — managed shell configuration
 - **Reconcile timer** — systemd timer that runs `ansible-pull` every minute
@@ -70,6 +71,37 @@ journalctl -u dgx-spark-reconcile.service -f  # live logs
 ## Documentation
 
 See [docs/setup.md](docs/setup.md) for detailed setup instructions, troubleshooting, and how to extend the configuration.
+
+## PersonaPlex Service
+
+This stack includes NVIDIA PersonaPlex as a git submodule at `compose/personaplex` and a `personaplex` service in [`compose/docker-compose.yml`](compose/docker-compose.yml).
+
+### First-time submodule setup
+
+```bash
+git submodule update --init --recursive
+```
+
+### Configure Hugging Face token
+
+1. Accept the model license for `nvidia/personaplex-7b-v1` on Hugging Face.
+2. Create the env file used by Docker Compose:
+
+```bash
+cp compose/.env.personaplex.example compose/.env.personaplex
+```
+
+3. Edit `compose/.env.personaplex` and set `HF_TOKEN`.
+
+### Start and verify
+
+```bash
+docker compose -f compose/docker-compose.yml config
+docker compose -f compose/docker-compose.yml up -d --remove-orphans
+docker compose -f compose/docker-compose.yml logs -f personaplex
+```
+
+Web UI is exposed on port `8998`.
 
 ## Design Principles
 
