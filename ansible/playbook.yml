@@ -10,3 +10,12 @@
     - tooling
     - ollama
     - chezmoi
+
+  post_tasks:
+    # Deliberately last. Switching the login shell before Oh My Zsh,
+    # Powerlevel10k, and the chezmoi-managed ~/.zshrc are all in place
+    # leaves you logging into a bare, unconfigured zsh.
+    - name: Ensure target user's login shell is zsh
+      ansible.builtin.user:
+        name: "{{ target_user }}"
+        shell: /usr/bin/zsh
