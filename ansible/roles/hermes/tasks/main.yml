@@ -1,0 +1,43 @@
+---
+# Role: hermes
+# Installs the Nous Research Hermes Agent CLI and leaves it ready to configure.
+#
+# Installed with --non-interactive, which runs every stage except `setup`
+# (API keys and settings) and `gateway` (Telegram/Discord service). Hermes
+# therefore lands installed but UNCONFIGURED, by design: configure it by hand
+# over SSH against a running vLLM endpoint, then check the resulting
+# ~/.hermes/config.yaml into chezmoi once you're happy with it.
+#
+# Two things this role deliberately does not do:
+#
+#   * Run as root. The installer branches on uid — as root it puts code in
+#     /usr/local/lib/hermes-agent and data in /root/.hermes, which the target
+#     user would never see. Hence become_user below.
+#
+#   * Manage PATH. The installer appends ~/.local/bin to ~/.zshrc, but that
+#     file is chezmoi-managed and would be overwritten on the next run. The
+#     PATH line lives in chezmoi/dot_zshrc instead.
+
+- name: Install Hermes Agent
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh \
+      | bash -s -- --non-interactive
+  args:
+    executable: /bin/bash
+    creates: "{{ target_home }}/.local/bin/hermes"
+  become: true
+  become_user: "{{ target_user }}"
+  environment:
+    HOME: "{{ target_home }}"
+  register: hermes_install
+
+- name: Note that Hermes still needs manual configuration
+  ansible.builtin.debug:
+    msg: >-
+      Hermes is installed but not configured — --non-interactive skips the
+      setup wizard. Start the vLLM workload first (see workloads/vllm/), then
+      run `hermes model` to point Hermes at http://localhost:8000/v1 and
+      `hermes tools` to enable capabilities. Upgrade later with
+      `hermes update`, not by re-running this playbook.
+  when: hermes_install.changed

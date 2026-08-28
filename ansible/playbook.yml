@@ -10,6 +10,10 @@
     - tooling
     - ollama
     - chezmoi
+    # After chezmoi: once ~/.hermes/config.yaml is chezmoi-managed, chezmoi
+    # lays it down first and the Hermes installer preserves the existing file
+    # rather than overwriting it with its template.
+    - hermes
 
   post_tasks:
     # Deliberately last. Switching the login shell before Oh My Zsh,

@@ -24,10 +24,11 @@ Re-run any time. Every step is idempotent.
 
 - **Docker group** — adds me to the `docker` group for sudo-less access
   (Docker itself is pre-installed on the DGX Spark and is *not* touched)
-- **CLI tooling** — `vim`, `zsh`, `git`
+- **CLI tooling** — `vim`, `zsh`, `git`, `ripgrep`, `ffmpeg`
 - **Shell** — zsh as login shell, Oh My Zsh, Powerlevel10k
 - **Dotfiles** — `~/.bashrc`, `~/.zshrc`, `~/.p10k.zsh`, applied via chezmoi
 - **Ollama** — installed natively, running as a systemd service
+- **Hermes Agent** — installed, left unconfigured (see below)
 
 **Out of scope** — what I happen to be running on it:
 
@@ -36,6 +37,25 @@ Experiments, containers, and one-off services don't belong here. Things like
 files upstream — clone them somewhere and run them directly when you want
 them. Keeping them out of this repo means nothing gets resurrected by a
 config sync I forgot about.
+
+**The one exception** is [`workloads/`](workloads/), which stores Compose
+files for things I launch by hand. Nothing in there is wired to Ansible, has a
+restart policy, or starts on boot — it's version-controlled so I don't have to
+re-derive a long flag list, not so that something runs it for me.
+
+## Installed vs. running
+
+The dividing line this repo cares about: Ansible is good at *"make sure X is
+installed."* It is bad at *"keep X running."* So installation lives in
+`ansible/`, and anything that runs lives in `workloads/` and is started
+manually.
+
+Hermes follows this too. The `hermes` role installs the CLI with
+`--non-interactive`, which skips the setup wizard — so it arrives installed but
+unconfigured. Configure it by hand (`hermes model`, `hermes tools`) against a
+running vLLM endpoint; once the configuration is worth keeping, check
+`~/.hermes/config.yaml` into `chezmoi/`. Its `~/.hermes/.env` holds API keys
+and never belongs in git.
 
 ## Where things live on disk
 
@@ -62,13 +82,17 @@ directly, without a passthrough layer in between.
 │   ├── group_vars/all.yml
 │   └── roles/
 │       ├── docker/                      # docker group membership only
-│       ├── tooling/                     # vim, zsh, git, oh-my-zsh, p10k
+│       ├── tooling/                     # vim, zsh, git, ripgrep, ffmpeg,
+│       │                                #   oh-my-zsh, p10k
 │       ├── ollama/                      # native Ollama install + service
-│       └── chezmoi/                     # chezmoi install + apply
+│       ├── chezmoi/                     # chezmoi install + apply
+│       └── hermes/                      # Hermes CLI install (unconfigured)
 ├── chezmoi/
 │   ├── dot_bashrc
 │   ├── dot_zshrc
 │   └── dot_p10k.zsh
+├── workloads/                           # manual only — nothing auto-runs
+│   └── vllm/                            # Qwen3.6-35B-A3B NVFP4 server
 └── docs/setup.md
 ```
 

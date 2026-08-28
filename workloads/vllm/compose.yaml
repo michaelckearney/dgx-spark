@@ -1,0 +1,64 @@
+# vLLM serving nvidia/Qwen3.6-35B-A3B-NVFP4 on the DGX Spark.
+#
+# NOTHING RUNS THIS AUTOMATICALLY. There is no Ansible role for it and no
+# systemd unit. Launch it by hand when you want it:
+#
+#     docker compose -f workloads/vllm/compose.yaml up -d
+#
+# The serve flags are the verified dgx_spark_gb10 profile from the vLLM
+# recipe, not hand-tuned. Read README.md before changing any of them.
+
+# Pinned so the project name doesn't change with the invoking directory —
+# `docker compose ls` and teardown stay predictable from anywhere.
+name: dgx-spark-vllm
+
+services:
+  vllm:
+    image: vllm/vllm-openai:v0.28.0
+    container_name: vllm-server
+
+    # No restart policy, on purpose. This is a manual workload; it must not
+    # resurrect itself on boot the way the old auto-reconciled stack did.
+
+    gpus: all
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+
+    # The image's default entrypoint is cleared so `command` below is the
+    # whole invocation, matching NVIDIA's playbook.
+    entrypoint: ""
+
+    ports:
+      # Loopback only, deliberately. The endpoint has no authentication of any
+      # kind — anyone who can reach it can use the model. NVIDIA's playbook
+      # writes "8000:8000" here, which binds every interface; this does not.
+      - "127.0.0.1:8000:8000"
+
+    volumes:
+      # Share the host HuggingFace cache so the ~21 GB checkpoint survives
+      # container removal and is not re-downloaded.
+      - ${HOME}/.cache/huggingface/hub:/root/.cache/huggingface/hub
+
+    command:
+      - vllm
+      - serve
+      - nvidia/Qwen3.6-35B-A3B-NVFP4
+      - --trust-remote-code
+      # --- verified dgx_spark_gb10 profile ---
+      - --kv-cache-dtype=fp8
+      - --attention-backend=flashinfer
+      - --moe-backend=marlin
+      - --gpu-memory-utilization=0.5
+      - --max-model-len=262144
+      - --max-num-seqs=8
+      - --max-num-batched-tokens=8192
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      - --load-format=fastsafetensors
+      # --- tool_calling + reasoning features (required by Hermes) ---
+      - --enable-auto-tool-choice
+      - --tool-call-parser=qwen3_xml
+      - --reasoning-parser=qwen3

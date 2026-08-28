@@ -5,6 +5,12 @@ if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
+# User-local binaries. The Hermes installer appends this same line to ~/.zshrc
+# itself, but this file is chezmoi-managed and would overwrite that edit on the
+# next `./setup.sh`, silently dropping `hermes` off PATH. Owning it here keeps
+# chezmoi the single source of truth.
+export PATH="$HOME/.local/bin:$PATH"
+
 # Path to your Oh My Zsh installation.
 export ZSH="$HOME/.oh-my-zsh"
 

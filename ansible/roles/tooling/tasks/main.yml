@@ -12,6 +12,12 @@
       - vim
       - zsh
       - git
+      # ripgrep and ffmpeg are Hermes Agent helpers. Its installer normally
+      # offers to install them, but that prompt lives in the setup wizard,
+      # which --non-interactive skips (see the hermes role). Installing them
+      # here covers the gap; both are independently useful anyway.
+      - ripgrep
+      - ffmpeg
     state: present
 
 # This must run BEFORE the custom/themes directory is created below: git
