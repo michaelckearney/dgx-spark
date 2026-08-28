@@ -1,0 +1,62 @@
+---
+# Role: ollama
+# Installs Ollama natively (not containerized) so models live at a known,
+# inspectable path on disk and talk to the GPU directly.
+#
+# The official installer creates the `ollama` system user/group, installs the
+# binary to /usr/local/bin/ollama, and sets up ollama.service.
+
+- name: Check if Ollama is installed
+  ansible.builtin.command: which ollama
+  register: ollama_check
+  changed_when: false
+  failed_when: false
+
+- name: Install Ollama
+  ansible.builtin.shell: |
+    curl -fsSL https://ollama.com/install.sh | sh
+  args:
+    creates: /usr/local/bin/ollama
+  when: ollama_check.rc != 0
+
+- name: Ensure the Ollama model directory exists
+  ansible.builtin.file:
+    path: "{{ ollama_models_dir }}"
+    state: directory
+    owner: ollama
+    group: ollama
+    mode: "0755"
+
+- name: Ensure the Ollama systemd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/ollama.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Pin the Ollama model directory explicitly
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/ollama.service.d/10-models-dir.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      # Managed by the dgx-spark repo. Makes the model storage location
+      # explicit rather than relying on Ollama's built-in default.
+      [Service]
+      Environment="OLLAMA_MODELS={{ ollama_models_dir }}"
+  notify: restart ollama
+
+- name: Allow the target user to read the Ollama model directory
+  ansible.builtin.user:
+    name: "{{ target_user }}"
+    groups: ollama
+    append: true
+
+- name: Enable and start the Ollama service
+  ansible.builtin.systemd:
+    name: ollama
+    enabled: true
+    state: started
+    daemon_reload: true

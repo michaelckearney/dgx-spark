@@ -2,135 +2,122 @@
 
 ## Prerequisites
 
-The target machine must have the following already installed:
+Already present on a stock DGX Spark (Ubuntu-based):
 
-- `git`
-- `curl`
-- `sudo` (with privileges for the current user)
-- `python3`
-- Docker (pre-installed on the DGX Spark)
+- `git`, `curl`, `python3`
+- `sudo` privileges for your user
+- Docker + NVIDIA Container Toolkit (pre-installed — this repo does not touch them)
 
-These are pre-installed on the DGX Spark (Ubuntu-based).
-
-## Bootstrap (First Run)
-
-Run this single command on the target machine:
+## Running it
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/michaelckearney/dgx-spark/main/bootstrap/bootstrap.sh | bash
+git clone https://github.com/michaelckearney/dgx-spark.git
+cd dgx-spark
+./setup.sh --check   # dry run: shows a diff of what would change
+./setup.sh           # apply
 ```
 
-This will:
+You'll be prompted for your sudo password. The script installs Ansible if it
+isn't already present, then runs `ansible/playbook.yml` against localhost.
 
-1. Install Ansible if it's not already present
-2. Run `ansible-pull`, which:
-   - Clones the repository to `/opt/dgx-spark`
-   - Runs the Ansible playbook, which:
-     - Adds the target user to the `docker` group (Docker itself is pre-installed)
-     - Installs chezmoi and applies dotfiles (`~/.bashrc`)
-     - Installs a systemd timer for automatic reconciliation
+There is no background reconciliation. If you change something in this repo,
+nothing happens on the machine until you re-run `./setup.sh` yourself.
 
-After the first run, the system is **self-managing** — a systemd timer runs `ansible-pull` every minute to pull changes and re-apply the playbook.
+## What gets configured
 
-## Automatic Reconciliation
-
-After bootstrap, a systemd timer (`dgx-spark-reconcile.timer`) runs every minute. It:
-
-1. Pulls the latest changes from the Git repository
-2. Runs the full Ansible playbook (only if changes are detected)
-3. Applies any new system or user configuration
-
-### Checking timer status
-
-```bash
-systemctl status dgx-spark-reconcile.timer
-```
-
-### Viewing reconcile logs
-
-```bash
-journalctl -u dgx-spark-reconcile.service -f
-```
-
-### Manually triggering a reconcile
-
-```bash
-sudo systemctl start dgx-spark-reconcile.service
-```
-
-### Disabling automatic reconciliation
-
-```bash
-sudo systemctl stop dgx-spark-reconcile.timer
-sudo systemctl disable dgx-spark-reconcile.timer
-```
-
-## Manual Re-run
-
-You can always re-run the bootstrap command to force a full reconciliation:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/michaelckearney/dgx-spark/main/bootstrap/bootstrap.sh | bash
-```
-
-This is idempotent and safe to run at any time.
-
-## What Gets Configured
-
-### System Level (Ansible)
+### System level (Ansible)
 
 | Component | Details |
 |---|---|
-| Docker group | Target user added to `docker` group (Docker is pre-installed, not modified) |
+| Docker group | Your user added to `docker`. Docker itself untouched. |
+| CLI tooling | `vim`, `zsh`, `git` via apt |
+| Login shell | Set to `/usr/bin/zsh` |
+| Oh My Zsh | Cloned to `~/.oh-my-zsh` |
+| Powerlevel10k | Cloned to `~/.oh-my-zsh/custom/themes/powerlevel10k` |
+| Ollama | Native install, `ollama.service` enabled and started |
 | chezmoi | Installed to `/usr/local/bin/chezmoi` |
-| Reconcile timer | systemd timer running `ansible-pull` every minute |
 
-### User Level (chezmoi)
+### User level (chezmoi)
 
 | File | Source |
 |---|---|
-| `~/.bashrc` | `chezmoi/dot_bashrc` in this repo |
+| `~/.bashrc` | `chezmoi/dot_bashrc` |
+| `~/.zshrc` | `chezmoi/dot_zshrc` |
+| `~/.p10k.zsh` | `chezmoi/dot_p10k.zsh` |
 
 ### What is NOT modified
 
-The following pre-installed components are **not touched** by this playbook:
-
-- Docker CE (pre-installed on DGX Spark)
+- Docker CE (pre-installed on the DGX Spark)
 - NVIDIA Container Toolkit / Runtime
 - NVIDIA drivers and CUDA
 - System kernel and firmware
 
-## Adding New Configuration
+## Ollama
+
+Installed natively rather than containerized, so models sit at a known path
+and the GPU is accessed directly.
+
+```bash
+systemctl status ollama          # service state
+ollama list                      # installed models
+ollama pull llama3.2             # add a model
+du -sh /usr/share/ollama/.ollama/models
+```
+
+The model directory is pinned explicitly by a systemd drop-in at
+`/etc/systemd/system/ollama.service.d/10-models-dir.conf`, generated from the
+`ollama_models_dir` variable in `ansible/group_vars/all.yml`. Change that
+variable and re-run `./setup.sh` to relocate model storage.
+
+Models are deliberately **not** declared in this repo — pull what you want,
+when you want it.
+
+## Running other things on the machine
+
+Containers and experiments are intentionally out of scope. Run them directly:
+
+```bash
+# example: PersonaPlex, which ships its own compose file
+git clone https://github.com/NVIDIA/personaplex.git
+cd personaplex
+echo "HF_TOKEN=hf_..." > .env
+docker compose up -d
+```
+
+Nothing in this repo will start, stop, or remove those.
+
+## Adding new configuration
 
 ### New system package or service
-Add a new Ansible role under `ansible/roles/` and include it in `ansible/playbook.yml`. The change will be picked up automatically within a minute.
+Add a role under `ansible/roles/` and list it in `ansible/playbook.yml`.
+Re-run `./setup.sh` to apply.
 
 ### New dotfile
-Add a new file to the `chezmoi/` directory following [chezmoi naming conventions](https://www.chezmoi.io/reference/source-state-attributes/):
-- `dot_` prefix → `.` in the target (e.g., `dot_gitconfig` → `~/.gitconfig`)
-- `private_` prefix → file permissions set to `0600`
+Add a file to `chezmoi/` following
+[chezmoi naming conventions](https://www.chezmoi.io/reference/source-state-attributes/):
 
-Push to the repo and the reconcile timer will apply it automatically.
+- `dot_` prefix → `.` in the target (`dot_gitconfig` → `~/.gitconfig`)
+- `private_` prefix → permissions set to `0600`
+
+Re-run `./setup.sh` to apply.
 
 ## Troubleshooting
 
 ### "Permission denied" when running Docker
-Log out and back in after the first run so the `docker` group membership takes effect.
+Log out and back in so the `docker` group membership takes effect.
 
 ### Ansible fails to install
-Ensure the `ppa:ansible/ansible` PPA is accessible. On some systems you may need to run:
 ```bash
 sudo apt-get update && sudo apt-get install -y software-properties-common
 ```
 
 ### chezmoi conflicts
-If chezmoi detects conflicts with existing files, you can force-apply with:
 ```bash
 chezmoi apply --force
 ```
 
-### Timer not running
+### Ollama won't start
 ```bash
-systemctl status dgx-spark-reconcile.timer
-journalctl -u dgx-spark-reconcile.service --no-pager -n 50
+systemctl status ollama
+journalctl -u ollama -n 50 --no-pager
 ```

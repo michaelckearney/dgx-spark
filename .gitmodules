@@ -1,3 +1,0 @@
-[submodule "compose/personaplex"]
-	path = compose/personaplex
-	url = https://github.com/NVIDIA/personaplex.git
