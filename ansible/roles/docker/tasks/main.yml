@@ -9,6 +9,7 @@
   register: docker_version
   changed_when: false
   failed_when: docker_version.rc != 0
+  check_mode: false          # read-only probe; safe to run during --check
 
 - name: Add target user to docker group
   ansible.builtin.user:

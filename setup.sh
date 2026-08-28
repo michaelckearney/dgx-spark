@@ -39,4 +39,4 @@ ansible-playbook "${PLAYBOOK}" \
     --extra-vars "target_user=$(id -un) target_home=${HOME}"
 
 echo "==> Done."
-echo "==> If docker/ollama group membership changed, log out and back in."
+echo "==> If docker group membership changed, log out and back in."

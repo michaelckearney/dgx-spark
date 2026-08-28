@@ -11,6 +11,7 @@
   register: ollama_check
   changed_when: false
   failed_when: false
+  check_mode: false          # read-only probe; safe to run during --check
 
 - name: Install Ollama
   ansible.builtin.shell: |
@@ -19,44 +20,46 @@
     creates: /usr/local/bin/ollama
   when: ollama_check.rc != 0
 
-- name: Ensure the Ollama model directory exists
-  ansible.builtin.file:
-    path: "{{ ollama_models_dir }}"
-    state: directory
-    owner: ollama
-    group: ollama
-    mode: "0755"
+# Everything below needs the `ollama` user/group and unit file that the
+# installer creates. During a --check run on a machine that doesn't have
+# Ollama yet, the install above is skipped (shell modules can't run in check
+# mode), so these are skipped too rather than failing on a missing group.
+- name: Configure Ollama
+  when: ollama_check.rc == 0 or not ansible_check_mode
+  block:
 
-- name: Ensure the Ollama systemd drop-in directory exists
-  ansible.builtin.file:
-    path: /etc/systemd/system/ollama.service.d
-    state: directory
-    owner: root
-    group: root
-    mode: "0755"
+    - name: Ensure the Ollama model directory exists
+      ansible.builtin.file:
+        path: "{{ ollama_models_dir }}"
+        state: directory
+        owner: ollama
+        group: ollama
+        mode: "0755"
 
-- name: Pin the Ollama model directory explicitly
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/ollama.service.d/10-models-dir.conf
-    owner: root
-    group: root
-    mode: "0644"
-    content: |
-      # Managed by the dgx-spark repo. Makes the model storage location
-      # explicit rather than relying on Ollama's built-in default.
-      [Service]
-      Environment="OLLAMA_MODELS={{ ollama_models_dir }}"
-  notify: restart ollama
+    - name: Ensure the Ollama systemd drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/ollama.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
 
-- name: Allow the target user to read the Ollama model directory
-  ansible.builtin.user:
-    name: "{{ target_user }}"
-    groups: ollama
-    append: true
+    - name: Pin the Ollama model directory explicitly
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/ollama.service.d/10-models-dir.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by the dgx-spark repo. Makes the model storage location
+          # explicit rather than relying on Ollama's built-in default.
+          [Service]
+          Environment="OLLAMA_MODELS={{ ollama_models_dir }}"
+      notify: restart ollama
 
-- name: Enable and start the Ollama service
-  ansible.builtin.systemd:
-    name: ollama
-    enabled: true
-    state: started
-    daemon_reload: true
+    - name: Enable and start the Ollama service
+      ansible.builtin.systemd:
+        name: ollama
+        enabled: true
+        state: started
+        daemon_reload: true
