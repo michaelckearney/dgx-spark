@@ -5,20 +5,32 @@
 # The login shell switch deliberately does NOT happen here — it runs in
 # playbook.yml post_tasks, after chezmoi has applied ~/.zshrc, so the shell
 # never changes before its configuration exists.
+#
+# ffmpeg is deliberately NOT installed. The Hermes wizard offers it alongside
+# ripgrep, but its only purpose there is TTS voice messages through a
+# messaging gateway, which this setup doesn't use. It costs ~73 packages and
+# ~174 MB of desktop multimedia stack (SDL2, OpenAL, JACK, mesa VA drivers,
+# pocketsphinx) on a headless box. If you enable Telegram and want voice
+# messages, add it back to the list below.
 
 - name: Install baseline shell tooling packages
-  ansible.builtin.package:
+  ansible.builtin.apt:
     name:
       - vim
       - zsh
       - git
-      # ripgrep and ffmpeg are Hermes Agent helpers. Its installer normally
-      # offers to install them, but that prompt lives in the setup wizard,
-      # which --non-interactive skips (see the hermes role). Installing them
-      # here covers the gap; both are independently useful anyway.
+      # ripgrep is a Hermes Agent helper (faster file search). Its installer
+      # normally offers to install it, but that prompt lives in the setup
+      # wizard, which --non-interactive skips. See the hermes role.
       - ripgrep
-      - ffmpeg
     state: present
+    # Nothing else in this repo refreshes the apt index, and DGX OS doesn't
+    # do it on its own. Left stale, the index points at package versions the
+    # mirrors have already withdrawn and every install fails with 404s —
+    # which is exactly what happened the first time this role had to fetch
+    # something rather than finding it already installed.
+    update_cache: true
+    cache_valid_time: 3600
 
 # This must run BEFORE the custom/themes directory is created below: git
 # refuses to clone into a directory that already exists and is non-empty,

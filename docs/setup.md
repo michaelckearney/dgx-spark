@@ -30,7 +30,7 @@ nothing happens on the machine until you re-run `./setup.sh` yourself.
 | Component | Details |
 |---|---|
 | Docker group | Your user added to `docker`. Docker itself untouched. |
-| CLI tooling | `vim`, `zsh`, `git`, `ripgrep`, `ffmpeg` via apt |
+| CLI tooling | `vim`, `zsh`, `git`, `ripgrep` via apt (refreshes the apt index) |
 | Login shell | Set to `/usr/bin/zsh` |
 | Oh My Zsh | Cloned to `~/.oh-my-zsh` |
 | Powerlevel10k | Cloned to `~/.oh-my-zsh/custom/themes/powerlevel10k` |
@@ -95,6 +95,11 @@ Notes:
 
 - Upgrade with `hermes update`, not by re-running `setup.sh`. The install task
   is guarded by `creates:` and won't re-run once the binary exists.
+- `ripgrep` is installed by the `tooling` role, covering the helper prompt that
+  `--non-interactive` skips. **`ffmpeg` is not** — its only use in Hermes is
+  TTS voice messages via a messaging gateway, and it pulls ~174 MB of desktop
+  multimedia libraries. Add it to the `tooling` role if you enable Telegram
+  and want voice messages.
 - Config lives at `~/.hermes/config.yaml` — a single file, safe to commit.
   Once you're happy with it, add it to `chezmoi/dot_hermes/config.yaml`.
 - **Never use `exact_dot_hermes/`** in chezmoi. `~/.hermes` also contains the

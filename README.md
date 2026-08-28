@@ -24,7 +24,7 @@ Re-run any time. Every step is idempotent.
 
 - **Docker group** — adds me to the `docker` group for sudo-less access
   (Docker itself is pre-installed on the DGX Spark and is *not* touched)
-- **CLI tooling** — `vim`, `zsh`, `git`, `ripgrep`, `ffmpeg`
+- **CLI tooling** — `vim`, `zsh`, `git`, `ripgrep`
 - **Shell** — zsh as login shell, Oh My Zsh, Powerlevel10k
 - **Dotfiles** — `~/.bashrc`, `~/.zshrc`, `~/.p10k.zsh`, applied via chezmoi
 - **Ollama** — installed natively, running as a systemd service
@@ -82,7 +82,7 @@ directly, without a passthrough layer in between.
 │   ├── group_vars/all.yml
 │   └── roles/
 │       ├── docker/                      # docker group membership only
-│       ├── tooling/                     # vim, zsh, git, ripgrep, ffmpeg,
+│       ├── tooling/                     # vim, zsh, git, ripgrep,
 │       │                                #   oh-my-zsh, p10k
 │       ├── ollama/                      # native Ollama install + service
 │       ├── chezmoi/                     # chezmoi install + apply
