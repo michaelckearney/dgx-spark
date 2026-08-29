@@ -12,18 +12,26 @@
 # sync, and there is no third store for this repo to secure. "Is it configured?"
 # is answered by asking the real consumer, not by reading a manifest of our own.
 #
-# Needs no sudo. Safe to re-run.
+# Safe to re-run. Needs no sudo except for `tailscale`, which cannot join a
+# tailnet without root; with this repo's passwordless sudo that is silent.
 set -euo pipefail
 
 # The Hermes command lives here; a non-login shell won't have it on PATH.
 export PATH="$HOME/.local/bin:$PATH"
 
-SECRETS=(github telegram)
+SECRETS=(github telegram tailscale)
 
 # Hermes' own validation regex, from hermes_cli/setup.py. A token that fails
 # this is accepted by the .env writer and then silently disables the Telegram
 # adapter at gateway start — an error in the log and nothing else.
 TELEGRAM_TOKEN_RE='^[0-9]+:[A-Za-z0-9_-]{30,}$'
+
+# Holds the Tailscale auth-key temp file while it exists. The trap covers every
+# exit path — normal return, an error, or a Ctrl-C partway through
+# `tailscale up` — so a plaintext key is never left behind on disk.
+TS_KEYFILE=""
+cleanup() { [[ -n "$TS_KEYFILE" ]] && rm -f "$TS_KEYFILE"; return 0; }
+trap cleanup EXIT INT TERM
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -52,6 +60,10 @@ is_configured_telegram() {
     # Accept both `KEY=` and `export KEY=` forms, and require a non-empty value.
     grep -qE '^(export[[:space:]]+)?TELEGRAM_BOT_TOKEN=.' "$env_path"
 }
+
+# `tailscale status` exits non-zero when logged out, so it doubles as the
+# joined-or-not probe without needing jq to read the JSON backend state.
+is_configured_tailscale() { tailscale status >/dev/null 2>&1; }
 
 is_configured() { "is_configured_$1"; }
 
@@ -242,6 +254,76 @@ EOF
     ok "Telegram gateway installed and running"
 }
 
+# --- tailscale ---------------------------------------------------------------
+
+configure_tailscale() {
+    require_cmd tailscale || return 1
+    cat <<'EOF'
+
+  Tailscale — reach this machine from anywhere
+  ────────────────────────────────────────────
+  Generate a one-off auth key at:
+      https://login.tailscale.com/admin/settings/keys
+
+  This only puts the machine on your private tailnet. SSH is unchanged —
+  same OpenSSH, same keys. Tailscale SSH is deliberately not enabled.
+
+  Your laptop needs the Tailscale client too, signed in to the same
+  account, or there's no tailnet to reach this machine over.
+
+  Press Enter on its own to skip.
+
+EOF
+    local key
+    read -rsp "  Tailscale auth key (Enter to skip): " key; echo
+    if [[ -z "$key" ]]; then
+        skip "Tailscale skipped — the machine won't join your tailnet"
+        return "$RC_SKIPPED"
+    fi
+    if [[ "$key" != tskey-* ]]; then
+        err "That doesn't look like a Tailscale auth key (expected tskey-...)."
+        return "$RC_FAILED"
+    fi
+
+    # Pass the key by file reference rather than on the command line: argv is
+    # world-readable via ps for as long as the process runs. TS_KEYFILE is
+    # cleaned up by the script-level EXIT/INT/TERM trap, so the key survives
+    # neither a failure nor a Ctrl-C partway through `tailscale up`.
+    TS_KEYFILE="$(umask 077 && mktemp)" || {
+        err "could not create temp file for the auth key"
+        return "$RC_FAILED"
+    }
+    printf '%s' "$key" > "$TS_KEYFILE"
+    unset key
+
+    # `tailscale up` needs root. --operator hands ongoing control to this user
+    # so later `tailscale status` / `ip` work without sudo.
+    say "  Joining the tailnet..."
+    local rc=0
+    sudo tailscale up \
+        --auth-key="file:${TS_KEYFILE}" \
+        --operator="$(id -un)" || rc=$?
+    cleanup; TS_KEYFILE=""
+
+    # errexit is off inside this function (main calls it as `configure_x ||
+    # rc=$?`), and success must mean the daemon agrees — not merely that the
+    # command didn't visibly fail.
+    if (( rc != 0 )) || ! is_configured_tailscale; then
+        err "Joining the tailnet failed."
+        err "Auth keys expire (90 days max) and one-off keys work only once —"
+        err "generate a fresh one and retry: ./configure.sh tailscale"
+        return "$RC_FAILED"
+    fi
+
+    local ts_ip
+    ts_ip="$(tailscale ip -4 2>/dev/null | head -1)"
+    ok "Joined the tailnet${ts_ip:+ as ${ts_ip}}"
+    say ""
+    warn "Node keys expire after 180 days by default. When that happens this"
+    warn "machine silently drops off the tailnet. Turn off key expiry for it at"
+    warn "https://login.tailscale.com/admin/machines — worth doing now."
+}
+
 # --- output ------------------------------------------------------------------
 
 print_status() {
@@ -284,6 +366,7 @@ USAGE
 SECRETS
   github      GitHub PAT  -> gh's token store, for pushing over HTTPS
   telegram    Bot token   -> ~/.hermes/.env, plus the gateway service
+  tailscale   Auth key    -> joins this machine to your tailnet (needs sudo)
 
 Nothing is stored by this repo. Each secret is written straight through to the
 tool that owns it, so there is never a second copy to drift or to secure.

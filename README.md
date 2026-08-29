@@ -43,6 +43,12 @@ as-is for anyone without inheriting someone else's identity.
 - **CLI tooling** — `vim`, `zsh`, `git`, `ripgrep`, `gh`
 - **Shell** — zsh as login shell, Oh My Zsh, Powerlevel10k
 - **Dotfiles** — `~/.bashrc`, `~/.zshrc`, `~/.p10k.zsh`, applied via chezmoi
+- **Tailscale** — installed and running, joined via `configure.sh`. Gives the
+  machine a private `100.x` address reachable from my own devices anywhere.
+  SSH is unchanged — same OpenSSH, same keys; Tailscale only supplies the route.
+  Tailscale SSH (`--ssh`) is deliberately *not* enabled, since it would
+  authenticate by tailnet membership rather than by private key on a host with
+  passwordless sudo.
 - **Ollama** — installed natively, running as a systemd service
 - **Hermes Agent** — installed, left unconfigured (see below)
 
@@ -143,6 +149,7 @@ There is no second copy to drift out of sync and no additional store to secure.
 |---|---|---|
 | `github` | gh's token store | pushing over HTTPS |
 | `telegram` | `~/.hermes/.env` + gateway service | Hermes messaging |
+| `tailscale` | the tailnet join itself | remote SSH from anywhere |
 
 The GitHub token needs `repo` scope (classic) or Contents: read and write
 (fine-grained). Note that a PAT, unlike `gh auth login`'s browser flow, does not

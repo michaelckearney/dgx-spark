@@ -1,0 +1,37 @@
+---
+# Role: tailscale
+# Installs the Tailscale client and starts tailscaled. Does NOT join a tailnet.
+#
+# Joining requires an auth key, which is a credential and therefore belongs in
+# configure.sh, not here — no key ever reaches Ansible or this repo. A fresh
+# machine ends up with tailscaled running and logged out, the same
+# installed-but-unconfigured resting state the hermes role produces.
+#
+# Note this DOES add a third-party apt repository. Tailscale is not in Ubuntu's
+# archive on the DGX Spark (`apt-cache policy tailscale` returns nothing), so
+# their installer adds /etc/apt/sources.list.d/tailscale.list plus a keyring in
+# /usr/share/keyrings. That is unavoidable for this package, but it is the same
+# class of change that once quietly replaced the Spark's Docker packages, so it
+# is stated plainly rather than buried in a curl pipe.
+
+- name: Check if Tailscale is installed
+  ansible.builtin.command: which tailscale
+  register: tailscale_check
+  changed_when: false
+  failed_when: false
+  check_mode: false          # read-only probe; safe to run during --check
+
+- name: Install Tailscale
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL https://tailscale.com/install.sh | sh
+  args:
+    executable: /bin/bash
+    creates: /usr/bin/tailscale
+  when: tailscale_check.rc != 0
+
+- name: Enable and start tailscaled
+  ansible.builtin.systemd:
+    name: tailscaled
+    enabled: true
+    state: started

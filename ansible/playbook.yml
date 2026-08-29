@@ -9,6 +9,7 @@
     - docker
     - sudo
     - tooling
+    - tailscale
     - ollama
     - chezmoi
     # After chezmoi: once ~/.hermes/config.yaml is chezmoi-managed, chezmoi

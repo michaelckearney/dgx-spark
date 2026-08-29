@@ -78,7 +78,9 @@ when you want it.
 ## Secrets
 
 `setup.sh` never prompts and supplies no credentials. `configure.sh` collects
-them, needs no sudo, and is safe to re-run:
+them and is safe to re-run. It needs no sudo except for `tailscale`, which
+cannot join a tailnet without root — silent here given the passwordless sudo
+this repo configures:
 
 ```bash
 ./configure.sh              # prompt for anything still missing
@@ -94,6 +96,7 @@ store to protect:
 |---|---|---|
 | `github` | gh's own token store, via `gh auth login --with-token` | `git push` over HTTPS |
 | `telegram` | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS` in `~/.hermes/.env` (`0600`), then `hermes gateway install` | Hermes messaging |
+| `tailscale` | consumed by `tailscale up` at join time; nothing is kept | remote SSH from anywhere |
 
 Status is derived by asking the real consumer (`gh auth status`, grepping the
 `.env`), not from a manifest of our own — so it cannot drift.
@@ -145,6 +148,54 @@ Two things `configure.sh` handles that are easy to get wrong by hand:
 
 Check the gateway with `hermes gateway status` or
 `journalctl --user -u hermes-gateway -f`.
+
+## Tailscale
+
+Puts this machine on a private WireGuard mesh so you can reach it from your own
+devices on any network — no port forwarding, no dynamic DNS, nothing exposed to
+the public internet.
+
+**SSH does not change.** Same OpenSSH, same keys, same `authorized_keys`;
+Tailscale only supplies the network path. Connect with the machine's tailnet
+address or its MagicDNS name:
+
+```bash
+tailscale ip -4          # on the Spark: its 100.x address
+ssh michaelckearney@100.x.y.z
+```
+
+**Your laptop needs the Tailscale client too**, signed in to the same account —
+it's a mesh, so there's no tailnet to reach the Spark over otherwise.
+
+Ansible installs the client and starts `tailscaled`; joining happens in
+`./configure.sh tailscale` with a one-off auth key from
+<https://login.tailscale.com/admin/settings/keys>. The key is written to a
+mode-`0600` temp file and passed as `--auth-key=file:...` rather than on the
+command line, where it would be visible in `ps`; a trap removes it on every exit
+path including Ctrl-C.
+
+### Two expiries, and only one will bite you
+
+| | Lifetime | Effect |
+|---|---|---|
+| **Auth key** | 90 days max | Only used at join. Expiry does **not** kick an already-joined machine off. |
+| **Node key** | **180 days** by default | The machine **silently drops off the tailnet**. |
+
+Turn off key expiry for this device at
+<https://login.tailscale.com/admin/machines>. Nothing will warn you first —
+remote access just stops working one day months from now.
+
+### Not enabled
+
+**Tailscale SSH (`--ssh`)** is deliberately off. It would add a second login
+path authenticated by tailnet membership instead of by private key, meaning any
+device you ever add to the tailnet gets a shell — on a host with passwordless
+sudo and an agent holding terminal and browser tools. Reversible at any time
+with `tailscale set --ssh` if you decide you want it.
+
+**`tailscale serve` / `funnel`** are also unused. `serve` would expose a local
+port to the tailnet; `funnel` exposes it to the public internet. Never point
+`funnel` at vLLM or Open WebUI — neither has any authentication.
 
 ## Hermes Agent
 
