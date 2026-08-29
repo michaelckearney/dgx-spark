@@ -78,13 +78,17 @@ set_env_key() {
         : > "$env_path"
         chmod 600 "$env_path"
     fi
-    tmp="$(mktemp "${env_path}.XXXXXX")"
-    chmod 600 "$tmp"
+    # Checked step by step: callers test this function's return value, which
+    # disables errexit inside it. A half-written .env would be worse than a
+    # clean failure, so bail (removing the temp file) on any problem.
+    tmp="$(mktemp "${env_path}.XXXXXX")" || return 1
+    chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
+    # grep exits 1 when it matches nothing, which is normal for a first write.
     grep -vE "^(export[[:space:]]+)?${key}=" "$env_path" > "$tmp" || true
     if [[ -n "$value" ]]; then
-        printf '%s=%s\n' "$key" "$value" >> "$tmp"
+        printf '%s=%s\n' "$key" "$value" >> "$tmp" || { rm -f "$tmp"; return 1; }
     fi
-    mv "$tmp" "$env_path"
+    mv "$tmp" "$env_path" || { rm -f "$tmp"; return 1; }
 }
 
 require_cmd() {
@@ -112,9 +116,12 @@ configure_github() {
   ────────────────────────────
   Create one at https://github.com/settings/tokens
 
-  Required scope: `repo` (classic), or Contents: read and write (fine-grained).
-  Without it `gh auth login` still succeeds and `git push` fails later, which
-  is a confusing way to find out.
+  Use a CLASSIC token with BOTH scopes:
+      repo        push over HTTPS
+      read:org    required by `gh auth login` itself; it refuses without it
+
+  Fine-grained tokens don't advertise scopes the way gh checks for them, so
+  they are likely to be rejected here. Classic is the reliable choice.
 
   Note: unlike `gh auth login`'s browser flow, a PAT does not refresh itself.
   When it expires, pushes start failing — re-run `./configure.sh github`.
@@ -128,8 +135,23 @@ EOF
         skip "GitHub skipped — pushing over HTTPS won't work until it's set"
         return "$RC_SKIPPED"
     fi
-    printf '%s' "$token" | gh auth login --with-token
+    # `set -e` is NOT in effect inside this function: main invokes it as
+    # `configure_x || rc=$?`, and testing a function's return value disables
+    # errexit throughout its body. Every fallible command must therefore be
+    # checked explicitly, or a failure sails on to the success message.
+    local rc=0
+    printf '%s' "$token" | gh auth login --with-token || rc=$?
     unset token
+
+    # Trust the outcome, not the exit status: re-run the same probe that
+    # `--list` uses, so "configured" always means the consumer agrees.
+    if (( rc != 0 )) || ! is_configured_github; then
+        err "GitHub authentication failed — nothing was stored."
+        err "A classic token needs BOTH 'repo' and 'read:org' scopes."
+        err "Check the scopes at https://github.com/settings/tokens and retry:"
+        err "    ./configure.sh github"
+        return "$RC_FAILED"
+    fi
     ok "GitHub authenticated (credential helper already wired by chezmoi)"
 }
 
@@ -168,16 +190,28 @@ EOF
     read -rp "  Allowed user IDs (comma-separated, blank for DM pairing): " ids
     ids="${ids//[[:space:]]/}"
 
+    # As in configure_github: errexit is disabled inside this function, so
+    # every fallible step is checked by hand.
     # Token via `hermes config set` — a key ending in _TOKEN is routed to .env.
-    hermes config set TELEGRAM_BOT_TOKEN "$token" >/dev/null
+    local rc=0
+    hermes config set TELEGRAM_BOT_TOKEN "$token" >/dev/null || rc=$?
     unset token
+    if (( rc != 0 )) || ! is_configured_telegram; then
+        err "Storing the bot token failed — nothing was written."
+        err "Retry with: ./configure.sh telegram"
+        return "$RC_FAILED"
+    fi
 
     # The allowlist must NOT go through `hermes config set TELEGRAM_ALLOWED_USERS`:
     # that key has no dot, isn't in the API-key list, and doesn't end in _TOKEN or
     # _SECRET, so it lands in config.yaml as a top-level key that nothing reads.
     # Writing .env directly is the canonical route — env wins over YAML in every
     # bridge, and it keeps the token and its allowlist in one file.
-    set_env_key TELEGRAM_ALLOWED_USERS "$ids"
+    if ! set_env_key TELEGRAM_ALLOWED_USERS "$ids"; then
+        err "Could not write the allowlist to Hermes' .env."
+        err "The bot token IS stored; fix the file and retry."
+        return "$RC_FAILED"
+    fi
 
     if [[ -n "$ids" ]]; then
         ok "Allowlist set (${ids})"
@@ -187,7 +221,12 @@ EOF
 
     say ""
     say "  Installing the gateway service..."
-    hermes gateway install --start-now --start-on-login
+    if ! hermes gateway install --start-now --start-on-login; then
+        err "Gateway install failed."
+        err "Your token and allowlist ARE saved — don't re-enter them. Retry with:"
+        err "    hermes gateway install --start-now --start-on-login"
+        return "$RC_FAILED"
+    fi
     ok "Telegram gateway installed and started"
 }
 

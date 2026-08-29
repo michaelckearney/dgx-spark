@@ -107,9 +107,18 @@ pushing over HTTPS won't work until you supply it.
 
 ### GitHub token
 
-Create at <https://github.com/settings/tokens>. Needs `repo` scope (classic) or
-Contents: read and write (fine-grained). Without it `gh auth login` still
-succeeds and `git push` fails later.
+Create at <https://github.com/settings/tokens>. Use a **classic** token with
+**both** scopes:
+
+| Scope | Why |
+|---|---|
+| `repo` | pushing over HTTPS |
+| `read:org` | required by `gh auth login` itself — it refuses the token without it |
+
+`read:org` is easy to miss: `gh` rejects the token outright with
+`missing required scope 'read:org'`. Fine-grained tokens don't advertise scopes
+in the way `gh` checks for them and are likely to be rejected, so classic is the
+reliable choice here.
 
 **A PAT does not refresh itself**, unlike `gh auth login`'s browser flow. When it
 expires, pushes start failing with no other warning — re-run
