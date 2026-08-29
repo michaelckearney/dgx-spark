@@ -31,8 +31,6 @@ nothing happens on the machine until you re-run `./setup.sh` yourself.
 |---|---|
 | Docker group | Your user added to `docker`. Docker itself untouched. |
 | Passwordless sudo | `/etc/sudoers.d/50-<user>-nopasswd`, plus sudo I/O logging |
-| SSH access | Keys from `local.yml` added to `authorized_keys`; `~/.ssh` set to `0700` |
-| Tailscale | Client installed, `tailscaled` running (joined by `configure.sh`) |
 | CLI tooling | `vim`, `zsh`, `git`, `ripgrep`, `gh` via apt |
 | Login shell | Set to `/usr/bin/zsh` |
 | Oh My Zsh | Cloned to `~/.oh-my-zsh` |
@@ -76,45 +74,6 @@ variable and re-run `./setup.sh` to relocate model storage.
 
 Models are deliberately **not** declared in this repo — pull what you want,
 when you want it.
-
-## Machine-specific values (`local.yml`)
-
-Some values are correct for you and wrong for anyone else — your SSH keys, your
-git authorship. They aren't secrets, but this repo is public, so committing them
-would push them onto every machine that ever runs it.
-
-They live in `local.yml`, which is gitignored:
-
-```bash
-cp local.yml.example local.yml
-```
-
-`setup.sh` picks it up automatically when present. Precedence is
-`group_vars/all.yml` < `local.yml` < `--extra-vars` on the command line.
-
-### SSH keys
-
-```yaml
-ssh_authorized_keys:
-  - "ssh-ed25519 AAAA... you@your-laptop"
-```
-
-Get yours with `cat ~/.ssh/id_ed25519.pub` (or `id_rsa.pub`) on the machine you
-connect *from*.
-
-Existing keys are never removed — the role uses `exclusive: false` deliberately.
-The DGX Spark ships with an NVIDIA Sync key in `authorized_keys` that
-`ssh <host>.local` depends on, and removing it could cut off your only way in.
-
-This matters for more than convenience: non-interactive SSH (`BatchMode`, which
-GUI tools like the Hermes desktop app use) has no password fallback. If your key
-isn't authorised, interactive `ssh` still works via password auth and the app
-fails with `Permission denied (publickey,password)` — a confusing pair of
-symptoms with one cause.
-
-The role also sets `~/.ssh` to `0700`. The Spark ships it `0775`, and sshd's
-`StrictModes` rejects keys from a group-writable `~/.ssh` — which presents as a
-rejected key rather than a permissions problem.
 
 ## Secrets
 

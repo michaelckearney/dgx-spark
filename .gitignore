@@ -1,4 +1,0 @@
-# Machine-specific overrides. Public keys and git identity are not secrets,
-# but they are personal — committing them to a public repo would push them
-# onto anyone else's machine. See local.yml.example.
-/local.yml

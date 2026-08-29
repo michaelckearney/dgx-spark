@@ -7,16 +7,6 @@ target_home: "/home/{{ target_user }}"
 # chezmoi source directory, resolved relative to this repo checkout
 chezmoi_source: "{{ playbook_dir | dirname }}/chezmoi"
 
-# SSH public keys authorised to log in as target_user.
-#
-# Empty on purpose: this repo is public, and a personal key committed here
-# would be installed on anyone else's machine when they run it. Put yours in
-# local.yml, which is gitignored — see local.yml.example.
-#
-# Existing keys are never removed (the role uses exclusive: false), so the
-# NVIDIA Sync key that `ssh <host>.local` relies on stays put.
-ssh_authorized_keys: []
-
 # Git identity written into ~/.gitconfig by chezmoi.
 #
 # These default to the machine's own user@host so the repo runs as-is for
