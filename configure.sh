@@ -220,14 +220,26 @@ EOF
     fi
 
     say ""
-    say "  Installing the gateway service..."
+    say "  Installing / refreshing the gateway service..."
     if ! hermes gateway install --start-now --start-on-login; then
         err "Gateway install failed."
         err "Your token and allowlist ARE saved — don't re-enter them. Retry with:"
         err "    hermes gateway install --start-now --start-on-login"
         return "$RC_FAILED"
     fi
-    ok "Telegram gateway installed and started"
+
+    # `gateway install` is a no-op when the unit already exists: it prints
+    # "Service already installed ... Use --force to reinstall" and returns
+    # WITHOUT restarting. The gateway only reads ~/.hermes/.env at startup, so
+    # on a rotation the running process would keep serving the old token while
+    # the file held the new one. Restart unconditionally — harmless on a fresh
+    # install, and the only thing that makes rotation actually take effect.
+    if ! hermes gateway restart; then
+        warn "Gateway did not restart. The new token is saved but the running"
+        warn "process may still be using the previous one. Fix with:"
+        warn "    hermes gateway restart"
+    fi
+    ok "Telegram gateway installed and running"
 }
 
 # --- output ------------------------------------------------------------------
