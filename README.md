@@ -32,6 +32,53 @@ them per run:
 Left alone they default to this machine's `user@hostname`, so the repo works
 as-is for anyone without inheriting someone else's identity.
 
+## SSH access from your laptop
+
+Not managed by this repo — it's a one-time step, run **from the laptop you
+connect from**:
+
+```bash
+ssh-copy-id -f -i ~/.ssh/id_rsa.pub <user>@<host>.local
+```
+
+**The `-f` is not optional.** `ssh-copy-id`'s "already installed" check is
+*"can I log into this host?"*, not *"is this particular key present?"*. The DGX
+Spark ships with an NVIDIA Sync key and an `~/.ssh/config` entry pointing at it,
+so the check always succeeds and the tool skips the copy with:
+
+```
+WARNING: All keys were skipped because they already exist on the remote system.
+```
+
+That message is wrong — your key was never installed. `-f` skips the check.
+
+Verify by counting keys (expect 2, yours plus NVIDIA's):
+
+```bash
+ssh <user>@<host>.local 'grep -c . ~/.ssh/authorized_keys'
+```
+
+### Why this matters beyond convenience
+
+Non-interactive SSH — `BatchMode`, which GUI tools like the Hermes desktop app
+use — has **no password fallback**. Until your key is authorised you get two
+symptoms with one cause, which is easy to misread as an application bug:
+
+| | |
+|---|---|
+| Interactive `ssh` | works — falls back to password auth |
+| `ssh -o BatchMode=yes` | `Permission denied (publickey,password)` |
+
+Confirm with the exact mode those tools use:
+
+```bash
+ssh -o BatchMode=yes <user>@<tailscale-ip> 'echo works'
+```
+
+If that still fails, check `~/.ssh` on the target: the Spark ships it `0775`,
+and sshd's `StrictModes` rejects keys from a group-writable `~/.ssh` — which
+presents as a rejected key rather than a permissions problem. `chmod 700 ~/.ssh`.
+
 ## Scope
 
 **In scope** — configuring the machine itself:
