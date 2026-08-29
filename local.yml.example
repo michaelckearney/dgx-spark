@@ -1,0 +1,24 @@
+# local.yml.example — machine-specific overrides, not committed.
+#
+# Copy to local.yml (which is gitignored) and edit. setup.sh passes it to
+# Ansible automatically if present; values here override group_vars/all.yml,
+# and anything you pass on the command line still wins over both.
+#
+#     cp local.yml.example local.yml
+#
+# This exists because the repo is public. Values that are correct for *you*
+# but wrong for anyone else — your SSH keys, your git identity — belong here
+# rather than in group_vars, where a stranger running this repo would silently
+# inherit them.
+
+# Public keys allowed to log in. Nothing is ever removed, so the NVIDIA Sync
+# key that `ssh <host>.local` depends on is safe.
+#
+# Get yours with:  cat ~/.ssh/id_ed25519.pub   (or id_rsa.pub)
+ssh_authorized_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA...replace-me you@your-laptop"
+
+# Git identity for commits made on this machine. Defaults to user@hostname,
+# which works but is an obvious placeholder.
+# git_user_name: "Ada Lovelace"
+# git_user_email: "ada@example.com"

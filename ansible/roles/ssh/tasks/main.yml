@@ -1,0 +1,36 @@
+---
+# Role: ssh
+# Manages who may log into this machine, and tightens ~/.ssh permissions.
+#
+# ssh_authorized_keys defaults to [] so a fresh clone of this PUBLIC repo
+# authorises nobody. Put your key in local.yml (gitignored) rather than in
+# group_vars — a personal key committed here would be installed on every
+# machine that ever runs this repo, which is not a favour to anyone.
+#
+# See local.yml.example.
+
+- name: Ensure ~/.ssh exists with safe permissions
+  ansible.builtin.file:
+    path: "{{ target_home }}/.ssh"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    # 0700, not the 0775 the DGX Spark ships with. sshd's StrictModes refuses
+    # keys from a group- or world-writable ~/.ssh, and when it does the failure
+    # looks like a rejected key rather than a permissions problem.
+    mode: "0700"
+
+# exclusive: false is the default, but it is stated explicitly because getting
+# it wrong is unrecoverable-ish: exclusive mode would delete every key not in
+# this list, including the NVIDIA Sync key that `ssh spark-1c74.local` depends
+# on — quite possibly the only way back into the machine.
+- name: Authorise SSH public keys
+  ansible.posix.authorized_key:
+    user: "{{ target_user }}"
+    key: "{{ item }}"
+    state: present
+    exclusive: false
+  loop: "{{ ssh_authorized_keys }}"
+  loop_control:
+    # Keys are long; show the trailing comment instead of the whole blob.
+    label: "{{ item.split()[-1] | default('key') }}"

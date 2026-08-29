@@ -44,12 +44,24 @@ if [[ ${#CHECK_FLAGS[@]} -gt 0 ]]; then
     echo "==> Dry run (no changes will be made)"
 fi
 
+# Optional machine-specific overrides (gitignored). This is where values that
+# are right for you but wrong for anyone else live — SSH keys, git identity —
+# so they never end up committed to a public repo. Loaded after the built-in
+# --extra-vars so it wins over group_vars, but before "$@" so the command line
+# still beats it.
+LOCAL_VARS=()
+if [[ -f "${REPO_ROOT}/local.yml" ]]; then
+    LOCAL_VARS=(--extra-vars "@${REPO_ROOT}/local.yml")
+    echo "==> Applying overrides from local.yml"
+fi
+
 # The ${arr[@]+"${arr[@]}"} form is required: under `set -u`, expanding an
 # empty array with "${arr[@]}" is an unbound-variable error on older bash.
 ansible-playbook "${PLAYBOOK}" \
     ${CHECK_FLAGS[@]+"${CHECK_FLAGS[@]}"} \
     --ask-become-pass \
     --extra-vars "target_user=$(id -un) target_home=${HOME}" \
+    ${LOCAL_VARS[@]+"${LOCAL_VARS[@]}"} \
     ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
 
 echo "==> Done."

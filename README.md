@@ -21,16 +21,17 @@ Re-run either any time. `setup.sh` is idempotent and never prompts;
 `configure.sh` only asks for what is still missing.
 
 The opinions here are mine (zsh, Powerlevel10k, Ollama), but nothing is tied
-to my identity. Set your own for commit authorship — either edit
-`git_user_name` / `git_user_email` in `ansible/group_vars/all.yml`, or pass
-them per run:
+to my identity. Anything personal — SSH keys, git authorship — goes in
+`local.yml`, which is gitignored:
 
 ```bash
-./setup.sh --extra-vars "git_user_name='Ada Lovelace' git_user_email=ada@example.com"
+cp local.yml.example local.yml    # then edit
+./setup.sh
 ```
 
-Left alone they default to this machine's `user@hostname`, so the repo works
-as-is for anyone without inheriting someone else's identity.
+That keeps this repo safe to clone: a stranger running it authorises nobody
+and commits as `user@hostname`, rather than silently inheriting my keys and my
+name. Command-line `--extra-vars` still overrides both.
 
 ## Scope
 
@@ -40,6 +41,9 @@ as-is for anyone without inheriting someone else's identity.
   (Docker itself is pre-installed on the DGX Spark and is *not* touched)
 - **Passwordless sudo** — so the Hermes agent can act unattended, with sudo
   I/O logging on so privileged sessions stay auditable (`sudoreplay -l`)
+- **SSH access** — authorises the public keys listed in `local.yml` and
+  tightens `~/.ssh` to `0700`. Never removes existing keys, so the
+  NVIDIA-provisioned one keeps working.
 - **CLI tooling** — `vim`, `zsh`, `git`, `ripgrep`, `gh`
 - **Shell** — zsh as login shell, Oh My Zsh, Powerlevel10k
 - **Dotfiles** — `~/.bashrc`, `~/.zshrc`, `~/.p10k.zsh`, applied via chezmoi
@@ -107,13 +111,16 @@ directly, without a passthrough layer in between.
 
 ```
 ├── setup.sh                             # Install/converge. Never prompts.
-├── configure.sh                         # Supply secrets. Prompts, no sudo.
+├── configure.sh                         # Supply secrets. Prompts.
+├── local.yml.example                    # → local.yml (gitignored): keys, identity
 ├── ansible/
 │   ├── playbook.yml
 │   ├── group_vars/all.yml
 │   └── roles/
 │       ├── docker/                      # docker group membership only
 │       ├── sudo/                        # passwordless sudo + I/O logging
+│       ├── ssh/                         # authorized_keys + ~/.ssh perms
+│       ├── tailscale/                   # client install, joined by configure.sh
 │       ├── tooling/                     # vim, zsh, git, ripgrep, gh,
 │       │                                #   oh-my-zsh, p10k
 │       ├── ollama/                      # native Ollama install + service

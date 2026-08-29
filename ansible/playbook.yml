@@ -8,6 +8,7 @@
   roles:
     - docker
     - sudo
+    - ssh
     - tooling
     - tailscale
     - ollama
