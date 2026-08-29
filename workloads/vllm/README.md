@@ -3,8 +3,15 @@
 Serves `nvidia/Qwen3.6-35B-A3B-NVFP4` on the DGX Spark over an
 OpenAI-compatible API at `http://localhost:8000/v1`.
 
-**Nothing starts this for you.** No Ansible role, no systemd unit, no restart
-policy. It runs when you run it.
+**Nothing starts this for you the first time.** No Ansible role, no systemd
+unit. It runs when you run it.
+
+It does carry `restart: unless-stopped`, which is the only auto-restart anywhere
+in this repo. The reason is concrete: vLLM crashed mid-request with
+`CUBLAS_STATUS_INTERNAL_ERROR`, the API server shut itself down cleanly, and the
+container stayed dead — while the Hermes Telegram gateway kept accepting
+messages it had no model to answer. The policy revives what stopped by accident
+and leaves alone what you stopped on purpose (`docker compose down` stays down).
 
 ## Why this isn't Ollama
 

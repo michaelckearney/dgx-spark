@@ -55,9 +55,17 @@ them. Keeping them out of this repo means nothing gets resurrected by a
 config sync I forgot about.
 
 **The one exception** is [`workloads/`](workloads/), which stores Compose
-files for things I launch by hand. Nothing in there is wired to Ansible, has a
-restart policy, or starts on boot — it's version-controlled so I don't have to
-re-derive a long flag list, not so that something runs it for me.
+files for things I launch by hand. Nothing in there is wired to Ansible — it's
+version-controlled so I don't have to re-derive a long flag list, not so that
+something runs it for me.
+
+vLLM does carry `restart: unless-stopped`, which is a deliberate exception to
+the no-auto-start rule rather than a lapse. It once crashed mid-request
+(`CUBLAS_STATUS_INTERNAL_ERROR`) and stayed dead, while the Hermes Telegram
+gateway — which *does* auto-start — carried on accepting messages it had no
+model to answer. `unless-stopped` revives what stopped by accident and leaves
+alone what I stopped on purpose, which is the distinction that actually
+matters. I still start it by hand the first time.
 
 ## Installed vs. running
 

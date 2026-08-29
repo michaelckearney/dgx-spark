@@ -1,9 +1,13 @@
 # vLLM serving nvidia/Qwen3.6-35B-A3B-NVFP4 on the DGX Spark.
 #
-# NOTHING RUNS THIS AUTOMATICALLY. There is no Ansible role for it and no
-# systemd unit. Launch it by hand when you want it:
+# NOTHING STARTS THIS FOR YOU THE FIRST TIME. There is no Ansible role for it
+# and no systemd unit. Launch it by hand when you want it:
 #
-#     docker compose -f workloads/vllm/compose.yaml up -d
+#     docker compose -f workloads/vllm/compose.yaml up -d --wait
+#
+# It does carry `restart: unless-stopped` — see the note on that line. Once
+# started it comes back after a crash or a reboot, but it stays down after you
+# deliberately stop it.
 #
 # The serve flags are the verified dgx_spark_gb10 profile from the vLLM
 # recipe, not hand-tuned. Read README.md before changing any of them.
@@ -17,8 +21,20 @@ services:
     image: vllm/vllm-openai:v0.28.0
     container_name: vllm-server
 
-    # No restart policy, on purpose. This is a manual workload; it must not
-    # resurrect itself on boot the way the old auto-reconciled stack did.
+    # The one workload with a restart policy, and the reason is specific.
+    #
+    # vLLM can die mid-flight: EngineCore hit
+    #   CUDA error: CUBLAS_STATUS_INTERNAL_ERROR ... cublasGemmEx
+    # after ~13h, the API server shut itself down cleanly in response, and the
+    # container stayed dead. Meanwhile the Hermes Telegram gateway — which does
+    # auto-start — kept accepting messages it had no model to answer. A dead
+    # backend behind a live bot is silent and confusing.
+    #
+    # `unless-stopped` covers crashes, Docker daemon restarts and reboots, while
+    # still respecting a deliberate `docker compose down` / `docker stop`. That
+    # keeps the rule this repo actually cares about: nothing resurrects a thing
+    # you chose to stop. It only revives what stopped by accident.
+    restart: unless-stopped
 
     gpus: all
     ipc: host

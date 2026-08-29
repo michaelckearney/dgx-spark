@@ -201,11 +201,14 @@ files for things launched by hand — currently a vLLM server for
 `nvidia/Qwen3.6-35B-A3B-NVFP4`:
 
 ```bash
-docker compose -f workloads/vllm/compose.yaml up -d
+docker compose -f workloads/vllm/compose.yaml up -d --wait
 ```
 
-Nothing in `workloads/` is wired to Ansible, has a restart policy, or starts on
-boot. See [`workloads/vllm/README.md`](../workloads/vllm/README.md).
+Nothing in `workloads/` is wired to Ansible or started for you the first time.
+vLLM carries `restart: unless-stopped` as a deliberate exception — it can crash
+mid-request and would otherwise stay dead behind a live Telegram gateway. That
+policy revives it after a crash or reboot but respects a deliberate
+`docker compose down`. See [`workloads/vllm/README.md`](../workloads/vllm/README.md).
 
 ## Adding new configuration
 
