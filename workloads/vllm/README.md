@@ -20,18 +20,34 @@ use. This is the specialist path for NVFP4, long context, and tool calling.
 ## Run it
 
 ```bash
-docker compose -f workloads/vllm/compose.yaml up -d
-docker compose -f workloads/vllm/compose.yaml logs -f
+docker compose -f workloads/vllm/compose.yaml up -d --wait
 ```
 
-Wait for `Application startup complete.` First launch downloads ~21 GB into
-`~/.cache/huggingface/hub`.
+`--wait` blocks until the healthcheck passes, so it returns exactly when the
+API is actually serving. Without it you get control back immediately and have
+to work out readiness yourself.
+
+A cold start downloads **21.85 GiB** (three safetensors shards) into
+`~/.cache/huggingface/hub`, then loads and compiles the model — the compile
+phase is silent and takes several minutes. Watch progress with:
+
+```bash
+docker compose -f workloads/vllm/compose.yaml logs -f     # wait for "Application startup complete."
+docker compose -f workloads/vllm/compose.yaml ps          # starting → healthy
+du -sb ~/.cache/huggingface/hub | awk '{printf "%.2f / 21.85 GiB (%.0f%%)\n", $1/1073741824, $1/1073741824/21.85*100}'
+```
 
 Verify:
 
 ```bash
 curl -sS http://localhost:8000/v1/models
 ```
+
+**"Connection reset by peer" during startup is normal, not an error.** Docker
+publishes port 8000 as soon as the container exists, so `docker-proxy` accepts
+your TCP connection and then has nothing to forward to until vLLM binds inside
+the container. The healthcheck is what distinguishes the two states — trust
+`ps` showing `healthy` over a hand-run `curl`.
 
 Test:
 

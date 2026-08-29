@@ -37,9 +37,27 @@ services:
       - "127.0.0.1:8000:8000"
 
     volumes:
-      # Share the host HuggingFace cache so the ~21 GB checkpoint survives
+      # Share the host HuggingFace cache so the 21.85 GiB checkpoint survives
       # container removal and is not re-downloaded.
       - ${HOME}/.cache/huggingface/hub:/root/.cache/huggingface/hub
+
+    # Docker publishes port 8000 the instant the container starts, so a plain
+    # "is it Up?" check reports success while curl still gets "connection reset
+    # by peer" — the engine hasn't bound the port inside the container yet.
+    # /health is vLLM's own readiness endpoint and only answers once the model
+    # is actually loaded, so `docker compose ps` and `up --wait` report real
+    # readiness instead of mere existence.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # A cold start downloads 21.85 GiB and then loads and compiles the model.
+      # Checks that fail inside start_period don't count toward `retries`, so
+      # this only has to exceed a worst-case first run; a warm start (cache
+      # already populated) is a few minutes and goes healthy as soon as it can.
+      start_period: 45m
+      start_interval: 15s
 
     command:
       - vllm
