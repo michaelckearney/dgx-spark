@@ -27,8 +27,16 @@ TELEGRAM_TOKEN_RE='^[0-9]+:[A-Za-z0-9_-]{30,}$'
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+skip() { printf '  \033[33m○\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m!\033[0m %s\n' "$*" >&2; }
 err()  { printf '  \033[31m✗\033[0m %s\n' "$*" >&2; }
+
+# Return codes from the configure_* functions. Declining to supply a secret is
+# a legitimate outcome, not a failure — it must not colour the exit status,
+# because "I haven't set Telegram up yet" is the normal case for a while.
+readonly RC_DONE=0
+readonly RC_FAILED=1
+readonly RC_SKIPPED=2
 
 # --- status probes -----------------------------------------------------------
 # Deliberately ask the consuming tool rather than tracking state ourselves.
@@ -111,12 +119,14 @@ configure_github() {
   Note: unlike `gh auth login`'s browser flow, a PAT does not refresh itself.
   When it expires, pushes start failing — re-run `./configure.sh github`.
 
+  Press Enter on its own to skip; run `./configure.sh github` when ready.
+
 EOF
     local token
-    read -rsp "  GitHub token: " token; echo
+    read -rsp "  GitHub token (Enter to skip): " token; echo
     if [[ -z "$token" ]]; then
-        err "no token entered — skipping GitHub"
-        return 1
+        skip "GitHub skipped — pushing over HTTPS won't work until it's set"
+        return "$RC_SKIPPED"
     fi
     printf '%s' "$token" | gh auth login --with-token
     unset token
@@ -138,13 +148,16 @@ configure_telegram() {
   routes them through DM pairing (`hermes gateway pairing approve`). Blank
   does NOT mean "anyone can use the bot".
 
+  Don't have a bot yet? Press Enter on its own to skip. Nothing else depends
+  on this — Hermes works fine from the terminal without it.
+
 EOF
     local token
     while :; do
-        read -rsp "  Telegram bot token: " token; echo
+        read -rsp "  Telegram bot token (Enter to skip): " token; echo
         if [[ -z "$token" ]]; then
-            err "no token entered — skipping Telegram"
-            return 1
+            skip "Telegram skipped — the gateway won't be installed"
+            return "$RC_SKIPPED"
         fi
         [[ "$token" =~ $TELEGRAM_TOKEN_RE ]] && break
         warn "That doesn't look like a BotFather token (expected <digits>:<30+ chars>)."
@@ -265,13 +278,29 @@ main() {
 
     require_tty
 
-    local failed=0 s
+    local failed=0 s rc
+    local -a skipped=()
     for s in "${targets[@]}"; do
-        "configure_${s}" || failed=1
+        rc="$RC_DONE"
+        "configure_${s}" || rc=$?
+        case "$rc" in
+            "$RC_SKIPPED") skipped+=("$s") ;;
+            "$RC_DONE")    ;;
+            *)             failed=1 ;;
+        esac
     done
 
     say ""
     print_status
+
+    # Skipping is not a failure: exit 0 so callers and CI aren't misled by
+    # someone simply not having set Telegram up yet.
+    if [[ ${#skipped[@]} -gt 0 ]]; then
+        local list
+        list="$(printf '%s, ' "${skipped[@]}")"
+        say ""
+        say "Skipped: ${list%, } — run ./configure.sh ${skipped[0]} when ready."
+    fi
     exit "$failed"
 }
 

@@ -98,6 +98,13 @@ store to protect:
 Status is derived by asking the real consumer (`gh auth status`, grepping the
 `.env`), not from a manifest of our own — so it cannot drift.
 
+**Everything here is optional and skippable.** Press Enter at any prompt to skip
+that secret; `configure.sh` still exits 0, because not having set something up
+yet is a normal state rather than a failure. Nothing else in the repo depends on
+either credential — `setup.sh` never consults them, Hermes runs fine from the
+terminal without Telegram, and the only consequence of skipping `github` is that
+pushing over HTTPS won't work until you supply it.
+
 ### GitHub token
 
 Create at <https://github.com/settings/tokens>. Needs `repo` scope (classic) or
