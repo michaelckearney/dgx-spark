@@ -1,0 +1,41 @@
+---
+# Role: sudo
+# Grants the target user passwordless sudo, so the Hermes agent can run
+# privileged commands with no human present to type a password.
+#
+# Three details are load-bearing:
+#
+#   * validate: runs `visudo -cf` against a temporary copy BEFORE the file is
+#     moved into place. A malformed sudoers file breaks sudo entirely and
+#     locks you out of root on a machine you may only reach over SSH. This
+#     makes that outcome impossible rather than merely unlikely.
+#
+#   * mode 0440 — sudo refuses to read drop-ins with any other permissions.
+#
+#   * the filename contains no "." or "~" — sudo silently ignores drop-ins
+#     whose names contain either, with no error at all.
+#
+# Scope note: this is deliberately `NOPASSWD: ALL` rather than a command
+# allowlist. Allowlisting the tools an agent actually needs (apt-get,
+# systemctl, find, ...) does not meaningfully restrict it — each of those can
+# spawn a root shell — so a partial list buys false confidence, not safety.
+
+- name: Grant the target user passwordless sudo
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/50-{{ target_user }}-nopasswd"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+    content: |
+      # Managed by the dgx-spark repo (ansible/roles/sudo).
+      # Passwordless sudo so the Hermes agent can act unattended.
+      {{ target_user }} ALL=(ALL) NOPASSWD: ALL
+
+      # Record privileged sessions so unattended activity stays auditable:
+      #   sudoreplay -l        list sessions
+      #   sudoreplay <id>      replay one
+      # log_output only, not log_input: input logging would capture keystrokes,
+      # including passwords typed into programs run under sudo.
+      Defaults:{{ target_user }} log_output
+      Defaults!/usr/bin/sudoreplay !log_output

@@ -24,6 +24,8 @@ Re-run any time. Every step is idempotent.
 
 - **Docker group** — adds me to the `docker` group for sudo-less access
   (Docker itself is pre-installed on the DGX Spark and is *not* touched)
+- **Passwordless sudo** — so the Hermes agent can act unattended, with sudo
+  I/O logging on so privileged sessions stay auditable (`sudoreplay -l`)
 - **CLI tooling** — `vim`, `zsh`, `git`, `ripgrep`
 - **Shell** — zsh as login shell, Oh My Zsh, Powerlevel10k
 - **Dotfiles** — `~/.bashrc`, `~/.zshrc`, `~/.p10k.zsh`, applied via chezmoi

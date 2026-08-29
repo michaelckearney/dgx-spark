@@ -7,6 +7,7 @@
 
   roles:
     - docker
+    - sudo
     - tooling
     - ollama
     - chezmoi
