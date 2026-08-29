@@ -46,6 +46,7 @@ nothing happens on the machine until you re-run `./setup.sh` yourself.
 | `~/.bashrc` | `chezmoi/dot_bashrc` |
 | `~/.zshrc` | `chezmoi/dot_zshrc` |
 | `~/.p10k.zsh` | `chezmoi/dot_p10k.zsh` |
+| `~/.gitconfig` | `chezmoi/dot_gitconfig.tmpl` (templated identity + gh credential helper) |
 
 ### What is NOT modified
 
@@ -73,6 +74,61 @@ variable and re-run `./setup.sh` to relocate model storage.
 
 Models are deliberately **not** declared in this repo — pull what you want,
 when you want it.
+
+## Secrets
+
+`setup.sh` never prompts and supplies no credentials. `configure.sh` collects
+them, needs no sudo, and is safe to re-run:
+
+```bash
+./configure.sh              # prompt for anything still missing
+./configure.sh github       # rotate exactly one
+./configure.sh --list       # show what is configured — never values
+```
+
+**Nothing is stored by this repo.** Each secret is written straight through to
+the tool that owns it, so no secret exists in two places and there is no extra
+store to protect:
+
+| Secret | Written to | Used for |
+|---|---|---|
+| `github` | gh's own token store, via `gh auth login --with-token` | `git push` over HTTPS |
+| `telegram` | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS` in `~/.hermes/.env` (`0600`), then `hermes gateway install` | Hermes messaging |
+
+Status is derived by asking the real consumer (`gh auth status`, grepping the
+`.env`), not from a manifest of our own — so it cannot drift.
+
+### GitHub token
+
+Create at <https://github.com/settings/tokens>. Needs `repo` scope (classic) or
+Contents: read and write (fine-grained). Without it `gh auth login` still
+succeeds and `git push` fails later.
+
+**A PAT does not refresh itself**, unlike `gh auth login`'s browser flow. When it
+expires, pushes start failing with no other warning — re-run
+`./configure.sh github`.
+
+### Telegram
+
+Bot token from [@BotFather](https://t.me/BotFather); your numeric ID from
+[@userinfobot](https://t.me/userinfobot).
+
+Leaving the allowlist blank is safe — Hermes denies unknown senders and routes
+them through DM pairing (`hermes gateway pairing approve`). Blank does **not**
+mean anyone can use the bot.
+
+Two things `configure.sh` handles that are easy to get wrong by hand:
+
+- `hermes config set TELEGRAM_ALLOWED_USERS ...` silently writes a **dead key**
+  into `config.yaml` that nothing reads. The allowlist must go into `.env`
+  directly (or via `hermes config set telegram.allow_from`).
+- A malformed or placeholder bot token is accepted by the `.env` writer and then
+  **silently disables** the Telegram adapter at gateway start — an error in the
+  log and nothing else. `configure.sh` validates against Hermes' own regex
+  before writing.
+
+Check the gateway with `hermes gateway status` or
+`journalctl --user -u hermes-gateway -f`.
 
 ## Hermes Agent
 

@@ -13,11 +13,12 @@ machine up, in a form I can actually re-run if I ever start over.
 git clone https://github.com/michaelckearney/dgx-spark.git
 cd dgx-spark
 ./setup.sh --check   # see what would change
-./setup.sh           # apply it
-gh auth login        # the one manual step — authenticates git for pushing
+./setup.sh           # install and configure everything
+./configure.sh       # supply the secrets a public repo can't contain
 ```
 
-Re-run any time. Every step is idempotent.
+Re-run either any time. `setup.sh` is idempotent and never prompts;
+`configure.sh` only asks for what is still missing.
 
 The opinions here are mine (zsh, Powerlevel10k, Ollama), but nothing is tied
 to my identity. Set your own for commit authorship — either edit
@@ -91,13 +92,15 @@ directly, without a passthrough layer in between.
 ## Repository structure
 
 ```
-├── setup.sh                             # The entrypoint. Run by hand.
+├── setup.sh                             # Install/converge. Never prompts.
+├── configure.sh                         # Supply secrets. Prompts, no sudo.
 ├── ansible/
 │   ├── playbook.yml
 │   ├── group_vars/all.yml
 │   └── roles/
 │       ├── docker/                      # docker group membership only
-│       ├── tooling/                     # vim, zsh, git, ripgrep,
+│       ├── sudo/                        # passwordless sudo + I/O logging
+│       ├── tooling/                     # vim, zsh, git, ripgrep, gh,
 │       │                                #   oh-my-zsh, p10k
 │       ├── ollama/                      # native Ollama install + service
 │       ├── chezmoi/                     # chezmoi install + apply
@@ -105,11 +108,38 @@ directly, without a passthrough layer in between.
 ├── chezmoi/
 │   ├── dot_bashrc
 │   ├── dot_zshrc
-│   └── dot_p10k.zsh
+│   ├── dot_p10k.zsh
+│   └── dot_gitconfig.tmpl               # templated git identity + gh helper
 ├── workloads/                           # manual only — nothing auto-runs
 │   └── vllm/                            # Qwen3.6-35B-A3B NVFP4 server
 └── docs/setup.md
 ```
+
+## Secrets
+
+`setup.sh` installs everything but supplies no credentials. `configure.sh`
+collects them:
+
+```bash
+./configure.sh              # anything still missing
+./configure.sh telegram     # rotate just one
+./configure.sh --list       # what's configured — never values
+```
+
+**This repo stores no secrets.** Each is written straight through to the tool
+that owns it — `gh`'s token store, and Hermes' `~/.hermes/.env` (mode `0600`).
+There is no second copy to drift out of sync and no additional store to secure.
+"Is it configured?" is answered by asking the real consumer.
+
+| Secret | Goes to | For |
+|---|---|---|
+| `github` | gh's token store | pushing over HTTPS |
+| `telegram` | `~/.hermes/.env` + gateway service | Hermes messaging |
+
+The GitHub token needs `repo` scope (classic) or Contents: read and write
+(fine-grained). Note that a PAT, unlike `gh auth login`'s browser flow, does not
+refresh itself — when it expires pushes start failing, and
+`./configure.sh github` replaces it.
 
 ## Design principles
 
