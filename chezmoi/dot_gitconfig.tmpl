@@ -1,0 +1,45 @@
+# Managed by chezmoi from the dgx-spark repo. Edit the source, not ~/.gitconfig —
+# chezmoi applies with --force and will overwrite local changes.
+
+# Identity is parameterised so this repo isn't tied to one person.
+#
+# Ansible passes CHEZMOI_GIT_USER_NAME / CHEZMOI_GIT_USER_EMAIL from
+# git_user_name / git_user_email in ansible/group_vars/all.yml. Override per
+# run without editing anything:
+#
+#   ./setup.sh --extra-vars "git_user_name='Ada Lovelace' git_user_email=ada@example.com"
+#
+# The `default` fallbacks matter: an unset env var renders as an empty string
+# in a chezmoi template, which would silently produce `name =` and then fail
+# at commit time with "Please tell me who you are". Falling back to the
+# machine's own user@host keeps a bare `chezmoi apply` (outside Ansible)
+# working, with an obviously-placeholder identity rather than a broken one.
+[user]
+	name = {{ env "CHEZMOI_GIT_USER_NAME" | default .chezmoi.username }}
+	email = {{ env "CHEZMOI_GIT_USER_EMAIL" | default (printf "%s@%s" .chezmoi.username .chezmoi.hostname) }}
+
+# Use the GitHub CLI as git's credential helper.
+#
+# This is laid down by chezmoi rather than by `gh auth setup-git`, because
+# that command fails outright when no host is authenticated yet — it cannot
+# run during a fresh bootstrap. A static config has no such problem: it is
+# simply inert until `gh auth login` stores a token, and works from then on.
+#
+# The empty `helper =` line is not a typo. It clears any credential helpers
+# inherited from system or global config so gh's helper is the one that runs.
+#
+# This only covers HTTPS remotes. An SSH remote (git@github.com:...) bypasses
+# credential helpers entirely and needs a key instead.
+[credential "https://github.com"]
+	helper =
+	helper = !gh auth git-credential
+
+[credential "https://gist.github.com"]
+	helper =
+	helper = !gh auth git-credential
+
+[init]
+	defaultBranch = main
+
+[pull]
+	ff = only

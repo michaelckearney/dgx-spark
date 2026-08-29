@@ -31,7 +31,7 @@ nothing happens on the machine until you re-run `./setup.sh` yourself.
 |---|---|
 | Docker group | Your user added to `docker`. Docker itself untouched. |
 | Passwordless sudo | `/etc/sudoers.d/50-<user>-nopasswd`, plus sudo I/O logging |
-| CLI tooling | `vim`, `zsh`, `git`, `ripgrep` via apt (refreshes the apt index) |
+| CLI tooling | `vim`, `zsh`, `git`, `ripgrep`, `gh` via apt |
 | Login shell | Set to `/usr/bin/zsh` |
 | Oh My Zsh | Cloned to `~/.oh-my-zsh` |
 | Powerlevel10k | Cloned to `~/.oh-my-zsh/custom/themes/powerlevel10k` |

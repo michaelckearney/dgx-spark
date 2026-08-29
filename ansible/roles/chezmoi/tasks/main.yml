@@ -45,4 +45,9 @@
   become_user: "{{ target_user }}"
   environment:
     HOME: "{{ target_home }}"
+    # Consumed by chezmoi/dot_gitconfig.tmpl so the git identity isn't
+    # hardcoded to one person. See git_user_name / git_user_email in
+    # ansible/group_vars/all.yml.
+    CHEZMOI_GIT_USER_NAME: "{{ git_user_name }}"
+    CHEZMOI_GIT_USER_EMAIL: "{{ git_user_email }}"
   changed_when: true

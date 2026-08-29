@@ -23,6 +23,7 @@
       # normally offers to install it, but that prompt lives in the setup
       # wizard, which --non-interactive skips. See the hermes role.
       - ripgrep
+      - gh
     state: present
     # Nothing else in this repo refreshes the apt index, and DGX OS doesn't
     # do it on its own. Left stale, the index points at package versions the
