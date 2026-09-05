@@ -52,25 +52,49 @@
   failed_when: false
   check_mode: false          # read-only probe; safe to run during --check
 
+# Version-gated rather than `creates:`-gated, so bumping llama_swap_version in
+# group_vars actually upgrades instead of silently doing nothing.
+#
+# Downloaded and unpacked as two steps because only get_url verifies a
+# checksum — unarchive has no such parameter, so fetching straight from the
+# URL would install whatever arrived.
 - name: Install llama-swap
-  # Version-gated rather than `creates:`-gated, so bumping llama_swap_version
-  # in group_vars actually upgrades instead of silently doing nothing. The
-  # checksum is the reason the pin is meaningful.
-  ansible.builtin.unarchive:
-    src: >-
-      https://github.com/mostlygeek/llama-swap/releases/download/{{ llama_swap_version }}/llama-swap_{{ llama_swap_version | regex_replace('^v', '') }}_linux_arm64.tar.gz
-    remote_src: true
-    dest: /usr/local/bin
-    include:
-      - llama-swap
-    owner: root
-    group: root
-    mode: "0755"
-    checksum: "{{ llama_swap_sha256 }}"
   when: >-
     llama_swap_version | regex_replace('^v', '')
     not in (llama_swap_installed.stdout | default(''))
-  notify: restart llama-swap
+  vars:
+    llama_swap_archive: "llama-swap_{{ llama_swap_version | regex_replace('^v', '') }}_linux_arm64.tar.gz"
+  block:
+
+    - name: Download the pinned llama-swap release
+      ansible.builtin.get_url:
+        url: "https://github.com/mostlygeek/llama-swap/releases/download/{{ llama_swap_version }}/{{ llama_swap_archive }}"
+        dest: "/tmp/{{ llama_swap_archive }}"
+        checksum: "{{ llama_swap_sha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Unpack the llama-swap binary
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ llama_swap_archive }}"
+        remote_src: true
+        dest: /usr/local/bin
+        include:
+          - llama-swap
+      notify: restart llama-swap
+
+    - name: Ensure the llama-swap binary is root-owned and executable
+      ansible.builtin.file:
+        path: /usr/local/bin/llama-swap
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Remove the downloaded archive
+      ansible.builtin.file:
+        path: "/tmp/{{ llama_swap_archive }}"
+        state: absent
 
 # Everything below needs the binary that the task above installs. On a --check
 # run against a machine that doesn't have it yet, the version probe fails, the
