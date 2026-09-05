@@ -97,6 +97,10 @@ presents as a rejected key rather than a permissions problem. `chmod 700 ~/.ssh`
   authenticate by tailnet membership rather than by private key on a host with
   passwordless sudo.
 - **Ollama** — installed natively, running as a systemd service
+- **llama-swap** — a model gateway on `127.0.0.1:8000`, installed natively and
+  run as a systemd service. Hermes asks it for a model by name; it starts the
+  right vLLM container on demand and brings it back if it dies. The one
+  daemon this repo runs — see [The one daemon](#the-one-daemon)
 - **Hermes Agent** — installed, left unconfigured (see below)
 
 **Out of scope** — what I happen to be running on it:
@@ -107,32 +111,75 @@ files upstream — clone them somewhere and run them directly when you want
 them. Keeping them out of this repo means nothing gets resurrected by a
 config sync I forgot about.
 
-**The one exception** is [`workloads/`](workloads/), which stores Compose
-files for things I launch by hand. Nothing in there is wired to Ansible — it's
-version-controlled so I don't have to re-derive a long flag list, not so that
-something runs it for me.
+**The one exception** is [`workloads/`](workloads/), which stores the
+definitions for things I launch by hand. It's version-controlled so I don't
+have to re-derive a long flag list, not so that something runs it for me.
 
-vLLM does carry `restart: unless-stopped`, which is a deliberate exception to
-the no-auto-start rule rather than a lapse. It once crashed mid-request
-(`CUBLAS_STATUS_INTERNAL_ERROR`) and stayed dead, while the Hermes Telegram
-gateway — which *does* auto-start — carried on accepting messages it had no
-model to answer. `unless-stopped` revives what stopped by accident and leaves
-alone what I stopped on purpose, which is the distinction that actually
-matters. I still start it by hand the first time.
+[`workloads/llama-swap/config.yaml`](workloads/llama-swap/config.yaml) is the
+exception to the exception: Ansible copies it to `/etc/llama-swap/config.yaml`,
+because the gateway that reads it is a service and services read their config
+from `/etc`. Ansible still only *installs* it — it lands at converge time and
+the service is reloaded once, deliberately. It is not watched and not polled;
+llama-swap's `--watch-config` exists and is not used.
+
+It lives in `workloads/` rather than inside the role because it is the same
+long vLLM flag list the directory exists to preserve, and it belongs next to
+[`workloads/vllm/README.md`](workloads/vllm/README.md), which explains where
+those flags come from.
 
 ## Installed vs. running
 
 The dividing line this repo cares about: Ansible is good at *"make sure X is
 installed."* It is bad at *"keep X running."* So installation lives in
-`ansible/`, and anything that runs lives in `workloads/` and is started
-manually.
+`ansible/`, and workloads live in `workloads/` and are started on demand.
+
+Keeping something running is systemd's job, not Ansible's — which is why the
+one service this repo runs gets a unit rather than a converge-time `docker
+compose up`. Ansible installs and enables it; systemd keeps it alive. See
+[The one daemon](#the-one-daemon).
 
 Hermes follows this too. The `hermes` role installs the CLI with
 `--non-interactive`, which skips the setup wizard — so it arrives installed but
-unconfigured. Configure it by hand (`hermes model`, `hermes tools`) against a
-running vLLM endpoint; once the configuration is worth keeping, check
-`~/.hermes/config.yaml` into `chezmoi/`. Its `~/.hermes/.env` holds API keys
-and never belongs in git.
+unconfigured. Configure it by hand (`hermes model`, `hermes tools`) against the
+gateway; once the configuration is worth keeping, check `~/.hermes/config.yaml`
+into `chezmoi/`. Its `~/.hermes/.env` holds API keys and never belongs in git.
+
+## The one daemon
+
+The rule was *no timers, no daemons, no polling*. `llama-swap` breaks it. This
+is the argument for why, so that it reads as a decision rather than a drift.
+
+**What runs is a router, not a workload.** llama-swap is a small Go process
+holding `127.0.0.1:8000`. It owns no GPU, loads no weights, and does nothing
+until something asks it for a model. No preload hook is configured, so a
+rebooted machine nobody talks to sits at **zero** GPU — which is *more*
+faithful to "runs when I say so" than the thing it replaces: a vLLM container
+with `restart: unless-stopped` that came back at every boot and held ~60 GB
+waiting for a request that might never arrive.
+
+**It retires an exception rather than adding one.** vLLM carried
+`restart: unless-stopped` because it once crashed mid-request
+(`CUBLAS_STATUS_INTERNAL_ERROR`) and stayed dead, while the Hermes Telegram
+gateway — which *does* auto-start — carried on accepting messages it had no
+model to answer. That policy fixed the container but not the incident: the
+request in flight when it died still failed, and so did every request during
+the multi-minute reload. llama-swap notices the engine exit, relaunches on the
+next request, and **holds that request until the model is ready**. The caller
+sees a slow reply instead of an error. Same problem, better answer — and the
+container no longer needs a restart policy, which also removes the second
+controller that would otherwise be fighting the gateway over the GPU.
+
+**It still doesn't poll.** `--watch-config` polls the config file every two
+seconds and is deliberately unused. That file is only ever written by
+`./setup.sh`, which reloads the service itself.
+
+What this costs: a crash at 03:00 is repaired on the next request, not
+proactively. This is recovery on demand, not supervision. For the thing it's
+for — surviving an overnight run, where requests are arriving — that's the
+right trade, but it is a trade.
+
+Operational detail lives in
+[`workloads/llama-swap/README.md`](workloads/llama-swap/README.md).
 
 ## Where things live on disk
 
@@ -141,6 +188,10 @@ and never belongs in git.
 | Ollama binary | `/usr/local/bin/ollama` |
 | Ollama models | `/usr/share/ollama/.ollama/models` |
 | Ollama service override | `/etc/systemd/system/ollama.service.d/10-models-dir.conf` |
+| llama-swap binary | `/usr/local/bin/llama-swap` |
+| llama-swap config | `/etc/llama-swap/config.yaml` (from `workloads/llama-swap/config.yaml`) |
+| llama-swap service | `/etc/systemd/system/llama-swap.service` |
+| HuggingFace model cache | `~/.cache/huggingface/hub` (bind-mounted into every vLLM container) |
 | chezmoi binary | `/usr/local/bin/chezmoi` |
 | chezmoi source | the `chezmoi/` directory in this repo |
 | Oh My Zsh | `~/.oh-my-zsh` |
@@ -164,6 +215,7 @@ directly, without a passthrough layer in between.
 │       ├── tooling/                     # vim, zsh, git, ripgrep, gh,
 │       │                                #   oh-my-zsh, p10k
 │       ├── ollama/                      # native Ollama install + service
+│       ├── llama_swap/                  # model gateway install + service
 │       ├── chezmoi/                     # chezmoi install + apply
 │       └── hermes/                      # Hermes CLI install (unconfigured)
 ├── chezmoi/
@@ -171,8 +223,9 @@ directly, without a passthrough layer in between.
 │   ├── dot_zshrc
 │   ├── dot_p10k.zsh
 │   └── dot_gitconfig.tmpl               # templated git identity + gh helper
-├── workloads/                           # manual only — nothing auto-runs
-│   └── vllm/                            # Qwen3.6-35B-A3B NVFP4 server
+├── workloads/
+│   ├── llama-swap/                      # model catalogue — copied to /etc
+│   └── vllm/                            # Qwen3.6-35B-A3B NVFP4: flags + why
 └── docs/setup.md
 ```
 
@@ -205,7 +258,8 @@ refresh itself — when it expires pushes start failing, and
 
 ## Design principles
 
-- **Runs when I say so** — no timers, no daemons, no polling
+- **Runs when I say so** — no timers, no polling, and no workload starts
+  itself. One daemon is an exception; see [The one daemon](#the-one-daemon)
 - **Idempotent** — safe to re-run at any point
 - **Non-destructive** — never reinstalls or modifies pre-installed system
   software (Docker, NVIDIA Container Toolkit, drivers, CUDA)

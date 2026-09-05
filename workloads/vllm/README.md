@@ -1,17 +1,25 @@
 # vLLM — Qwen3.6-35B-A3B (NVFP4)
 
-Serves `nvidia/Qwen3.6-35B-A3B-NVFP4` on the DGX Spark over an
-OpenAI-compatible API at `http://localhost:8000/v1`.
+What this model is, and why its flags are what they are.
 
-**Nothing starts this for you the first time.** No Ansible role, no systemd
-unit. It runs when you run it.
+`nvidia/Qwen3.6-35B-A3B-NVFP4` is served on the DGX Spark over an
+OpenAI-compatible API. **You don't start it — the gateway does.** Its lifecycle
+belongs to llama-swap, which starts the container on demand when something asks
+for this model by name and holds the request until it's ready. The endpoint is
+unchanged at `http://localhost:8000/v1`; see
+[`../llama-swap/README.md`](../llama-swap/README.md).
 
-It does carry `restart: unless-stopped`, which is the only auto-restart anywhere
-in this repo. The reason is concrete: vLLM crashed mid-request with
-`CUBLAS_STATUS_INTERNAL_ERROR`, the API server shut itself down cleanly, and the
-container stayed dead — while the Hermes Telegram gateway kept accepting
-messages it had no model to answer. The policy revives what stopped by accident
-and leaves alone what you stopped on purpose (`docker compose down` stays down).
+The flag list lives once, in
+[`../llama-swap/config.yaml`](../llama-swap/config.yaml). This file is where
+the flags are *explained*.
+
+This model used to carry `restart: unless-stopped` — the only auto-restart in
+the repo — because it crashed mid-request with `CUBLAS_STATUS_INTERNAL_ERROR`,
+the API server shut itself down cleanly, and the container stayed dead while
+the Hermes Telegram gateway kept accepting messages it had no model to answer.
+That policy is retired: it revived the container but not the incident, and the
+gateway now answers the same problem better by holding the request through the
+reload. See [The one daemon](../../README.md#the-one-daemon).
 
 ## Why this isn't Ollama
 
@@ -24,39 +32,9 @@ TensorRT-LLM. The `qwen3.6:35b-a3b-nvfp4` tag in Ollama's registry is an MLX
 Ollama stays installed and is still the right tool for everyday interactive
 use. This is the specialist path for NVFP4, long context, and tool calling.
 
-## Run it
+## Use it
 
-```bash
-docker compose -f workloads/vllm/compose.yaml up -d --wait
-```
-
-`--wait` blocks until the healthcheck passes, so it returns exactly when the
-API is actually serving. Without it you get control back immediately and have
-to work out readiness yourself.
-
-A cold start downloads **21.85 GiB** (three safetensors shards) into
-`~/.cache/huggingface/hub`, then loads and compiles the model — the compile
-phase is silent and takes several minutes. Watch progress with:
-
-```bash
-docker compose -f workloads/vllm/compose.yaml logs -f     # wait for "Application startup complete."
-docker compose -f workloads/vllm/compose.yaml ps          # starting → healthy
-du -sb ~/.cache/huggingface/hub | awk '{printf "%.2f / 21.85 GiB (%.0f%%)\n", $1/1073741824, $1/1073741824/21.85*100}'
-```
-
-Verify:
-
-```bash
-curl -sS http://localhost:8000/v1/models
-```
-
-**"Connection reset by peer" during startup is normal, not an error.** Docker
-publishes port 8000 as soon as the container exists, so `docker-proxy` accepts
-your TCP connection and then has nothing to forward to until vLLM binds inside
-the container. The healthcheck is what distinguishes the two states — trust
-`ps` showing `healthy` over a hand-run `curl`.
-
-Test:
+Just ask for it by name. The gateway starts it if it isn't running:
 
 ```bash
 curl http://localhost:8000/v1/chat/completions \
@@ -71,10 +49,51 @@ curl http://localhost:8000/v1/chat/completions \
 Reasoning is enabled, so part of the token budget is spent on a thinking pass
 before the answer — keep `max_tokens` generous or replies look truncated.
 
-Stop it:
+The first such request after a boot pays the load: a few minutes, held open by
+the gateway. Warm it deliberately before an overnight run so that wait happens
+once, where you can watch it. Free the memory again with
+`curl -X POST http://localhost:8000/api/models/unload`.
+
+### First run: pull the weights by hand
+
+A cold start downloads **21.85 GiB** (three safetensors shards) into
+`~/.cache/huggingface/hub`, then loads and compiles — the compile phase is
+silent and takes several minutes. **The gateway is deliberately not sized for
+that**, so do it once, by hand, before relying on the model:
 
 ```bash
-docker compose -f workloads/vllm/compose.yaml down
+docker run --rm --init --name vllm-qwen3-35b \
+  --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 \
+  -p 127.0.0.1:5800:8000 \
+  -v "$HOME/.cache/huggingface/hub:/root/.cache/huggingface/hub" \
+  --entrypoint vllm vllm/vllm-openai:v0.28.0 \
+  serve nvidia/Qwen3.6-35B-A3B-NVFP4 --trust-remote-code \
+  --kv-cache-dtype=fp8 --attention-backend=flashinfer --moe-backend=marlin \
+  --gpu-memory-utilization=0.5 --max-model-len=262144 --max-num-seqs=8 \
+  --max-num-batched-tokens=8192 --enable-chunked-prefill --async-scheduling \
+  --enable-prefix-caching --load-format=fastsafetensors \
+  --enable-auto-tool-choice --tool-call-parser=qwen3_xml --reasoning-parser=qwen3
+```
+
+Watch the download:
+
+```bash
+du -sb ~/.cache/huggingface/hub | awk '{printf "%.2f / 21.85 GiB (%.0f%%)\n", $1/1073741824, $1/1073741824/21.85*100}'
+```
+
+This is also the **standalone bypass** — the way to run vLLM with no gateway
+in the path when you're debugging the model rather than the gateway. It binds
+5800, so it doesn't collide with llama-swap on 8000, but it does collide with
+a gateway-started container of the same name: unload first.
+
+**"Connection reset by peer" during startup is normal, not an error.** Docker
+publishes the port as soon as the container exists, so `docker-proxy` accepts
+your TCP connection and then has nothing to forward to until vLLM binds inside
+the container. `/health` is what distinguishes the two states, and it is what
+the gateway waits on:
+
+```bash
+until curl -sf http://127.0.0.1:5800/health; do sleep 5; done
 ```
 
 ## Where the flags come from
@@ -101,8 +120,15 @@ Hermes needs them; they're harmless otherwise.
 
 ## Troubleshooting
 
-**Memory pressure even within capacity.** A known unified-memory quirk. Flush
-the buffer cache:
+**Memory pressure even within capacity.** Check Ollama first — it runs natively
+as a systemd service and competes for the same unified memory, and the
+gateway's one-model-at-a-time rule only covers *its own* models:
+
+```bash
+ollama ps
+```
+
+Otherwise it's the known unified-memory quirk. Flush the buffer cache:
 
 ```bash
 sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'
@@ -117,21 +143,32 @@ KV cache. Not part of the verified profile, so treat it as tuning.
 
 ## Using it with Hermes
 
-Hermes is installed by the `hermes` Ansible role but left unconfigured. Start
-this server first, then:
+Hermes is installed by the `hermes` Ansible role but left unconfigured:
 
 ```bash
 hermes model    # Custom endpoint → http://localhost:8000/v1 → blank API key
 hermes tools    # enable capabilities
 ```
 
-The model picker lists whatever `/v1/models` reports, so the server must be
-running or you'll get an empty list.
+The model picker lists whatever `/v1/models` reports. That is now the gateway,
+which answers with the full catalogue whether or not anything is loaded — so
+nothing needs starting first.
+
+One thing to set by hand afterwards: a request timeout that outlasts a model
+load. Hermes' own retry budget is ~45–60 seconds, an order of magnitude short
+of a reload, and the design depends on the gateway holding the request rather
+than Hermes retrying. See the timeout ladder in
+[`../llama-swap/README.md`](../llama-swap/README.md).
 
 ## Full cleanup
 
 ```bash
-docker compose -f workloads/vllm/compose.yaml down
+curl -X POST http://localhost:8000/api/models/unload
 docker rmi vllm/vllm-openai:v0.28.0
 rm -rf ~/.cache/huggingface/hub/models--nvidia--Qwen3.6-35B-A3B-NVFP4
 ```
+
+Then remove the entry from
+[`../llama-swap/config.yaml`](../llama-swap/config.yaml) and re-run
+`./setup.sh`, or the gateway will keep advertising a model it can no longer
+load without a 21.85 GiB download.

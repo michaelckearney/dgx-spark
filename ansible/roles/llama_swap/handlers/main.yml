@@ -1,0 +1,15 @@
+---
+# Config-only changes get SIGHUP: a model that is already loaded and whose
+# definition hasn't changed keeps running, so editing the catalogue doesn't
+# cost a multi-minute reload.
+- name: reload llama-swap
+  ansible.builtin.systemd:
+    name: llama-swap
+    state: reloaded
+
+# Unit or binary changes need a real restart, which does drop a loaded model.
+- name: restart llama-swap
+  ansible.builtin.systemd:
+    name: llama-swap
+    state: restarted
+    daemon_reload: true

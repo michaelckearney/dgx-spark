@@ -36,6 +36,7 @@ nothing happens on the machine until you re-run `./setup.sh` yourself.
 | Oh My Zsh | Cloned to `~/.oh-my-zsh` |
 | Powerlevel10k | Cloned to `~/.oh-my-zsh/custom/themes/powerlevel10k` |
 | Ollama | Native install, `ollama.service` enabled and started |
+| llama-swap | Native install, `llama-swap.service` enabled and started, `127.0.0.1:8000` |
 | chezmoi | Installed to `/usr/local/bin/chezmoi` |
 | Hermes Agent | Installed to `~/.local/bin/hermes`, **left unconfigured** |
 
@@ -74,6 +75,46 @@ variable and re-run `./setup.sh` to relocate model storage.
 
 Models are deliberately **not** declared in this repo — pull what you want,
 when you want it.
+
+Ollama shares the machine's unified memory with vLLM. If a model load fails on
+memory even within capacity, check `ollama ps` first — llama-swap's
+one-model-at-a-time rule only covers its own models.
+
+## llama-swap
+
+The model gateway, and the one daemon this repo runs — see
+[The one daemon](../README.md#the-one-daemon) for why that exception exists.
+It holds `127.0.0.1:8000` and starts the right vLLM container on demand.
+
+```bash
+systemctl status llama-swap
+journalctl -u llama-swap -f
+curl -sS http://localhost:8000/v1/models    # catalogue, loaded or not
+docker ps                                   # what is actually resident
+```
+
+The model catalogue is `workloads/llama-swap/config.yaml`, copied to
+`/etc/llama-swap/config.yaml` by the `llama_swap` role. Edit it in the repo and
+re-run `./setup.sh`; the role validates it before moving it into place and
+reloads the service with `SIGHUP`, which leaves an already-loaded model
+running. Version and listen address come from `llama_swap_*` in
+`ansible/group_vars/all.yml`.
+
+**Nothing is loaded at boot.** A rebooted machine nobody talks to holds zero
+GPU, while `/v1/models` still answers.
+
+**The endpoint has no authentication** — inference, the `/ui` log stream, and
+`POST /api/models/unload` are all open to whoever reaches the port. Loopback
+binding is the whole of the access control. Reach the UI over SSH:
+
+```bash
+ssh -L 8000:127.0.0.1:8000 <user>@<host>
+```
+
+Adding a model has traps worth reading before you try —
+[`workloads/llama-swap/README.md`](../workloads/llama-swap/README.md) covers
+them, chiefly that `cmd` is not run through a shell, so `${HOME}` in a volume
+mount silently causes a 21.85 GiB re-download.
 
 ## Secrets
 
@@ -195,7 +236,12 @@ with `tailscale set --ssh` if you decide you want it.
 
 **`tailscale serve` / `funnel`** are also unused. `serve` would expose a local
 port to the tailnet; `funnel` exposes it to the public internet. Never point
-`funnel` at vLLM or Open WebUI — neither has any authentication.
+either at port 8000 or at Open WebUI — neither has any authentication.
+
+Port 8000 is now llama-swap, which raises the stakes: alongside inference it
+serves a live log stream at `/ui` and an unauthenticated
+`POST /api/models/unload`. Use an SSH tunnel
+(`ssh -L 8000:127.0.0.1:8000 <user>@<host>`) rather than widening the binding.
 
 ## Hermes Agent
 
@@ -204,7 +250,7 @@ install stage except `setup` (API keys and settings) and `gateway`
 (Telegram/Discord), so Hermes arrives **installed but unconfigured** — by
 design.
 
-To configure it, start the vLLM workload first, then:
+To configure it:
 
 ```bash
 hermes model    # Custom endpoint → http://localhost:8000/v1 → blank API key
@@ -212,8 +258,30 @@ hermes tools    # toggle capabilities
 hermes          # open the TUI
 ```
 
-`hermes model` lists whatever the endpoint reports at `/v1/models`, so the
-server must be running or the list comes back empty.
+`hermes model` lists whatever the endpoint reports at `/v1/models`. That is now
+the llama-swap gateway, which answers with the full catalogue whether or not a
+model is loaded — so nothing needs starting first.
+
+**Set a request timeout that outlasts a model load.** This is the one manual
+step the gateway depends on. Hermes retries transport errors, but its budget is
+roughly 45–60 seconds — an order of magnitude short of a vLLM reload. The
+design works by the gateway *holding* the request until the model is ready, so
+Hermes never enters retry; if Hermes gives up first, that hold is wasted. In
+`~/.hermes/config.yaml`:
+
+```yaml
+providers:
+  <provider_id>:
+    timeout_seconds: 2100
+    stale_timeout_seconds: 300
+```
+
+`providers` is empty by default, so you are adding this block. Read the file
+after `hermes model` has run to find the real `<provider_id>`. The values must
+exceed `healthCheckTimeout` in the gateway's config (1800s) — see the timeout
+ladder in [`workloads/llama-swap/README.md`](../workloads/llama-swap/README.md).
+This is also the first thing that makes `~/.hermes/config.yaml` genuinely worth
+committing to `chezmoi/`.
 
 Notes:
 
@@ -247,19 +315,20 @@ echo "HF_TOKEN=hf_..." > .env
 docker compose up -d
 ```
 
-The exception is [`workloads/`](../workloads/), which version-controls Compose
-files for things launched by hand — currently a vLLM server for
-`nvidia/Qwen3.6-35B-A3B-NVFP4`:
+The exception is [`workloads/`](../workloads/), which version-controls the
+definitions for things launched by hand, plus the llama-swap model catalogue —
+the one file there that Ansible does deploy, to `/etc/llama-swap/config.yaml`.
+
+Local models are no longer started by hand at all. Ask the gateway for one by
+name and it starts the container for you:
 
 ```bash
-docker compose -f workloads/vllm/compose.yaml up -d --wait
+curl -sS http://localhost:8000/v1/models
 ```
 
-Nothing in `workloads/` is wired to Ansible or started for you the first time.
-vLLM carries `restart: unless-stopped` as a deliberate exception — it can crash
-mid-request and would otherwise stay dead behind a live Telegram gateway. That
-policy revives it after a crash or reboot but respects a deliberate
-`docker compose down`. See [`workloads/vllm/README.md`](../workloads/vllm/README.md).
+See [`workloads/llama-swap/README.md`](../workloads/llama-swap/README.md) for
+operating it and [`workloads/vllm/README.md`](../workloads/vllm/README.md) for
+what the Qwen3.6 flags mean and how to run it standalone when debugging.
 
 ## Adding new configuration
 

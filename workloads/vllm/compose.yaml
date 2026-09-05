@@ -1,3 +1,21 @@
+# ---------------------------------------------------------------------------
+# SUPERSEDED — pending retirement. Do not run this alongside llama-swap.
+#
+# The llama-swap gateway now owns this model's lifecycle and holds
+# 127.0.0.1:8000, which this file also wants. They are mutually exclusive:
+# starting this while the gateway is up fails with "address already in use",
+# and after a reboot Docker's restart policy below would race systemd for the
+# port. Two controllers over one GPU is the failure this design removes.
+#
+# It is kept only as the rollback path while the gateway is being verified
+# (see the rollout plan). Once that's done this file goes away; the flag list
+# lives in ../llama-swap/config.yaml and the standalone `docker run` bypass is
+# in README.md. To use this in the meantime:
+#
+#     sudo systemctl stop llama-swap
+#
+# ---------------------------------------------------------------------------
+#
 # vLLM serving nvidia/Qwen3.6-35B-A3B-NVFP4 on the DGX Spark.
 #
 # NOTHING STARTS THIS FOR YOU THE FIRST TIME. There is no Ansible role for it
