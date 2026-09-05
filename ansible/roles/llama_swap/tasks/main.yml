@@ -29,26 +29,6 @@
       The llama_swap role targets aarch64 (DGX Spark); this host reports
       {{ ansible_facts['architecture'] }}.
 
-# This role takes over 127.0.0.1:8000, which the hand-started vLLM stack used
-# to own. Converging has to include taking it, or the first run leaves
-# llama-swap crash-looping against a port it can't bind — and because the unit
-# is Type=simple, systemd reports a successful start either way, so the
-# breakage would be silent until someone asked for a model.
-#
-# Stopped by container name rather than `docker compose down`, so this keeps
-# working after workloads/vllm/compose.yaml is retired. `restart:
-# unless-stopped` respects a deliberate stop, so it stays down across reboots.
-- name: Check for the superseded vLLM container
-  ansible.builtin.command: docker ps -q --filter name=^vllm-server$
-  register: llama_swap_legacy_vllm
-  changed_when: false
-  failed_when: false
-  check_mode: false          # read-only probe; safe to run during --check
-
-- name: Stop the superseded vLLM container
-  ansible.builtin.command: docker rm -f vllm-server
-  when: llama_swap_legacy_vllm.stdout | default('') | length > 0
-
 - name: Create the llama-swap system group
   ansible.builtin.group:
     name: "{{ llama_swap_user }}"

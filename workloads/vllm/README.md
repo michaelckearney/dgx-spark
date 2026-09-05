@@ -13,13 +13,11 @@ The flag list lives once, in
 [`../llama-swap/config.yaml`](../llama-swap/config.yaml). This file is where
 the flags are *explained*.
 
-This model used to carry `restart: unless-stopped` — the only auto-restart in
-the repo — because it crashed mid-request with `CUBLAS_STATUS_INTERNAL_ERROR`,
-the API server shut itself down cleanly, and the container stayed dead while
-the Hermes Telegram gateway kept accepting messages it had no model to answer.
-That policy is retired: it revived the container but not the incident, and the
-gateway now answers the same problem better by holding the request through the
-reload. See [The one daemon](../../README.md#the-one-daemon).
+This model can die mid-request — it once hit `CUBLAS_STATUS_INTERNAL_ERROR`
+after ~13h and the API server shut itself down cleanly. The gateway is what
+makes that survivable: it relaunches on the next request and holds that
+request until the model is ready. See
+[The one daemon](../../README.md#the-one-daemon).
 
 ## Why this isn't Ollama
 

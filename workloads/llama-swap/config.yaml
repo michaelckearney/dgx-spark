@@ -107,10 +107,9 @@ models:
     # thing that breaks when someone changes the -p mapping.
     proxy: "http://127.0.0.1:${PORT}"
 
-    # vLLM's own readiness endpoint, replacing the compose healthcheck.
-    # Docker publishes the port the instant the container starts, so a plain
-    # "is it up?" reports success while curl still gets "connection reset by
-    # peer" — the engine hasn't bound the port inside the container yet.
+    # vLLM's own readiness endpoint. Docker publishes the port the instant the
+    # container starts, so a plain "is it up?" reports success while curl still
+    # gets "connection reset by peer" — the engine hasn't bound it inside yet.
     # /health only answers once the model is actually loaded.
     checkEndpoint: "/health"
 
@@ -130,9 +129,10 @@ models:
     # vLLM spawns EngineCore subprocesses. It is a container-runtime concern,
     # not a vLLM tuning flag.
     #
-    # --entrypoint vllm ... serve is the exact equivalent of the compose
-    # file's `entrypoint: ""` plus `command: [vllm, serve, ...]`. An empty
-    # --entrypoint "" would shlex-split into a literal empty argv element.
+    # --entrypoint vllm ... serve: the image's own entrypoint is bypassed so
+    # this argv is the whole invocation, matching NVIDIA's playbook. Clearing
+    # it with --entrypoint "" instead would shlex-split into a literal empty
+    # argv element.
     cmd: |
       /usr/bin/docker run
       --rm
