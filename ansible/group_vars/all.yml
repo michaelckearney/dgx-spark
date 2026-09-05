@@ -25,3 +25,36 @@ git_user_email: "{{ target_user }}@{{ ansible_facts['hostname'] }}"
 # Where Ollama stores model weights. This is Ollama's own default, pinned
 # explicitly via a systemd drop-in so the location is never a surprise.
 ollama_models_dir: "/usr/share/ollama/.ollama/models"
+
+# llama-swap — the model gateway, and the one daemon this repo runs.
+#
+# Pinned with a checksum. An unpinned gateway is a config format that changes
+# under a service you don't watch; the checksum is what makes the pin mean
+# something. Bump both together from the release's checksums file:
+#   https://github.com/mostlygeek/llama-swap/releases
+#
+# Note the tag carries a "v" and the release asset filename does not — the
+# role strips it (llama-swap_253_linux_arm64.tar.gz).
+llama_swap_version: "v253"
+llama_swap_sha256: "sha256:7ccf4e1920cf36c041e2cabe2388676a4755c9763c396cfb2f9fd46649788a90"
+llama_swap_user: "llama-swap"
+
+# Explicit because llama-swap's own default is :8080 — every interface —
+# on an endpoint with no authentication of any kind. Loopback is the whole of
+# the access control here, same as for the vLLM container it replaces.
+llama_swap_listen: "127.0.0.1:8000"
+
+llama_swap_config_dir: "/etc/llama-swap"
+
+# The catalogue lives in workloads/ next to the vLLM docs that explain its
+# flags, and Ansible copies it to /etc. Same cross-repo reference as
+# chezmoi_source above.
+llama_swap_config_source: "{{ playbook_dir | dirname }}/workloads/llama-swap/config.yaml"
+
+# Injected into the service environment as HF_CACHE and referenced from
+# config.yaml as ${env.HF_CACHE}. It cannot be ${HOME} (llama-swap's `cmd` is
+# exec'd without a shell) and must not be ${env.HOME} (that is the service
+# account's home, /var/lib/llama-swap — a valid-looking wrong path that would
+# silently re-download 21.85 GiB). This is why the value is set here, where
+# machine-specific paths already live.
+llama_swap_hf_cache: "{{ target_home }}/.cache/huggingface/hub"

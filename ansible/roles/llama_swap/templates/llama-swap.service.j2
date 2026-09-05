@@ -1,0 +1,59 @@
+# Managed by the dgx-spark repo (ansible/roles/llama_swap). Edits here are
+# overwritten on the next ./setup.sh — change the template instead.
+
+[Unit]
+Description=llama-swap model gateway
+Documentation=https://github.com/mostlygeek/llama-swap
+Documentation=file://{{ llama_swap_config_dir }}/config.yaml
+
+# Docker is pre-installed and this repo doesn't manage it, but every model in
+# the catalogue is a container. Without this the gateway wins the boot race
+# against dockerd and the first load fails.
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User={{ llama_swap_user }}
+Group={{ llama_swap_user }}
+SupplementaryGroups=docker
+
+# Consumed by ${env.HF_CACHE} in config.yaml. NOT $HOME, for two reasons:
+# `cmd` is exec'd without a shell so a bare ${HOME} would pass through
+# literally, and this service's own $HOME is /var/lib/llama-swap — so
+# ${env.HOME} would be a valid-looking wrong path that Docker would create,
+# leaving vLLM to re-download 21.85 GiB into an empty cache.
+Environment=HF_CACHE={{ llama_swap_hf_cache }}
+
+# -listen is explicit because llama-swap's default is :8080 — every
+# interface. This endpoint has NO authentication: inference, the /ui log
+# stream and POST /api/models/unload are all open to whoever reaches the port.
+# Loopback is the entire access control, exactly as it was for the vLLM
+# container this replaces. Reach /ui from a laptop with
+# `ssh -L 8000:127.0.0.1:8000`, never by widening this.
+#
+# --watch-config is deliberately absent. It polls the config file every 2s,
+# and that file is only ever written by ./setup.sh, which reloads this
+# service itself.
+ExecStart=/usr/local/bin/llama-swap --config {{ llama_swap_config_dir }}/config.yaml -listen {{ llama_swap_listen }}
+ExecReload=/bin/kill -HUP $MAINPID
+
+# KillMode=mixed sends SIGTERM to llama-swap alone, so it gets to run each
+# model's cmdStop (`docker stop`) itself. Under the default control-group
+# behaviour systemd signals the docker clients too and the shutdown path is
+# ambiguous.
+#
+# TimeoutStopSec must exceed unloadTimeout (60s in config.yaml) plus a stop of
+# every loaded model. systemd's default of 90s is close enough to that
+# boundary to be a coin flip, and losing it means SIGKILL mid-stop, orphaning
+# a container that is still holding ~60 GB of unified memory with nothing
+# pointing at it. Recovery is `docker rm -f <name>`.
+KillMode=mixed
+TimeoutStopSec=180
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

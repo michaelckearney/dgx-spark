@@ -1,0 +1,169 @@
+---
+# Role: llama_swap
+# Installs the llama-swap model gateway and runs it as a systemd service.
+#
+# THIS ROLE RUNS A DAEMON. That is a deliberate amendment to this repo's first
+# design principle, argued in the top-level README ("The one daemon"). The
+# short version: what runs is a router, not a workload. It holds a port, not a
+# GPU, and loads nothing until something asks it for a model.
+#
+# Not used: upstream's scripts/install.sh. It writes its own unit hardcoding
+# --watch-config and -listen 127.0.0.1:8080 — both of which this role
+# overrides, leaving two sources of truth for one file — and it adds the
+# service account to `render` and `video`, which are only needed for native
+# GPU inference. Every model here runs in a container.
+#
+# Scope note, in the spirit of the sudo role: `docker` group membership is
+# root-equivalent — anything in it can bind-mount / and run privileged
+# containers. This role creates an account with that power. It is not a
+# privilege escalation on this machine (the login user is already in `docker`
+# and has NOPASSWD: ALL), but it is a second account with it, and it exists so
+# the gateway isn't running in your login session.
+
+- name: Assert the host is arm64
+  # The release asset name is architecture-specific. On the wrong arch the
+  # download is a 404 page that gets installed as a binary.
+  ansible.builtin.assert:
+    that: ansible_facts['architecture'] == 'aarch64'
+    fail_msg: >-
+      The llama_swap role targets aarch64 (DGX Spark); this host reports
+      {{ ansible_facts['architecture'] }}.
+
+- name: Create the llama-swap system group
+  ansible.builtin.group:
+    name: "{{ llama_swap_user }}"
+    system: true
+
+- name: Create the llama-swap system user
+  ansible.builtin.user:
+    name: "{{ llama_swap_user }}"
+    group: "{{ llama_swap_user }}"
+    groups: docker            # root-equivalent — see the scope note above
+    append: true
+    system: true
+    shell: /usr/sbin/nologin
+    home: /var/lib/llama-swap
+    create_home: true
+
+- name: Check the installed llama-swap version
+  ansible.builtin.command: /usr/local/bin/llama-swap --version
+  register: llama_swap_installed
+  changed_when: false
+  failed_when: false
+  check_mode: false          # read-only probe; safe to run during --check
+
+# Version-gated rather than `creates:`-gated, so bumping llama_swap_version in
+# group_vars actually upgrades instead of silently doing nothing.
+#
+# Downloaded and unpacked as two steps because only get_url verifies a
+# checksum — unarchive has no such parameter, so fetching straight from the
+# URL would install whatever arrived.
+- name: Install llama-swap
+  when: >-
+    llama_swap_version | regex_replace('^v', '')
+    not in (llama_swap_installed.stdout | default(''))
+  vars:
+    llama_swap_archive: "llama-swap_{{ llama_swap_version | regex_replace('^v', '') }}_linux_arm64.tar.gz"
+  block:
+
+    - name: Download the pinned llama-swap release
+      ansible.builtin.get_url:
+        url: "https://github.com/mostlygeek/llama-swap/releases/download/{{ llama_swap_version }}/{{ llama_swap_archive }}"
+        dest: "/tmp/{{ llama_swap_archive }}"
+        checksum: "{{ llama_swap_sha256 }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Unpack the llama-swap binary
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ llama_swap_archive }}"
+        remote_src: true
+        dest: /usr/local/bin
+        include:
+          - llama-swap
+      notify: restart llama-swap
+
+    - name: Ensure the llama-swap binary is root-owned and executable
+      ansible.builtin.file:
+        path: /usr/local/bin/llama-swap
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Remove the downloaded archive
+      ansible.builtin.file:
+        path: "/tmp/{{ llama_swap_archive }}"
+        state: absent
+
+# Everything below needs the binary that the task above installs. On a --check
+# run against a machine that doesn't have it yet, the version probe fails, the
+# install is skipped, and `validate:` would have nothing to run — so gate the
+# rest the way the ollama role gates its post-install block.
+- name: Configure llama-swap
+  # `.rc | default(1)`: a missing executable can fail the command module
+  # before it ever sets rc, so an absent key must read as "not installed".
+  when: llama_swap_installed.rc | default(1) == 0 or not ansible_check_mode
+  block:
+
+    - name: Ensure the llama-swap config directory exists
+      ansible.builtin.file:
+        path: "{{ llama_swap_config_dir }}"
+        state: directory
+        owner: root
+        group: "{{ llama_swap_user }}"
+        mode: "0750"
+
+    - name: Install the model catalogue
+      # validate: is the same guarantee the sudo role gets from `visudo -cf` —
+      # a broken config is never moved into place. HF_CACHE must be set
+      # because config.yaml references ${env.HF_CACHE} and an unset ${env.*}
+      # is a hard load error, which is exactly the check we want to run here.
+      ansible.builtin.copy:
+        src: "{{ llama_swap_config_source }}"
+        dest: "{{ llama_swap_config_dir }}/config.yaml"
+        owner: root
+        group: "{{ llama_swap_user }}"
+        mode: "0640"
+        validate: "/usr/local/bin/llama-swap --config %s --validate"
+      environment:
+        HF_CACHE: "{{ llama_swap_hf_cache }}"
+      notify: reload llama-swap
+
+    - name: Install the llama-swap service unit
+      ansible.builtin.template:
+        src: llama-swap.service.j2
+        dest: /etc/systemd/system/llama-swap.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart llama-swap
+
+    - name: Enable and start the llama-swap service
+      ansible.builtin.systemd:
+        name: llama-swap
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    # Handlers normally run at the end of the play, so on a converge that only
+    # changed the config the probe below would test the OLD process. Flushing
+    # here means the thing being verified is the thing just deployed.
+    - name: Apply pending llama-swap restarts before verifying
+      ansible.builtin.meta: flush_handlers
+
+    # Type=simple means systemd calls the start successful as soon as the
+    # process forks, so a bind failure or a rejected config would otherwise
+    # pass this playbook and only surface later as a crash-loop. Ask the
+    # gateway a real question instead: /v1/models is served from the
+    # catalogue, so it answers immediately without loading anything.
+    - name: Verify the gateway is serving
+      ansible.builtin.uri:
+        url: "http://{{ llama_swap_listen }}/v1/models"
+        return_content: true
+      register: llama_swap_probe
+      retries: 5
+      delay: 2
+      until: llama_swap_probe.status | default(0) == 200
+      changed_when: false
+      when: not ansible_check_mode

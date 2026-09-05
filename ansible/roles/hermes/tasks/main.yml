@@ -36,8 +36,11 @@
   ansible.builtin.debug:
     msg: >-
       Hermes is installed but not configured — --non-interactive skips the
-      setup wizard. Start the vLLM workload first (see workloads/vllm/), then
-      run `hermes model` to point Hermes at http://localhost:8000/v1 and
-      `hermes tools` to enable capabilities. Upgrade later with
-      `hermes update`, not by re-running this playbook.
+      setup wizard. Run `hermes model` to point Hermes at
+      http://localhost:8000/v1 and `hermes tools` to enable capabilities. The
+      model picker reads /v1/models from the llama-swap gateway, which answers
+      with the full catalogue whether or not a model is loaded — so nothing
+      needs starting first, and no timeout tuning is required — see
+      workloads/llama-swap/README.md. Upgrade later with `hermes update`, not
+      by re-running this playbook.
   when: hermes_install.changed

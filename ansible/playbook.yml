@@ -11,6 +11,10 @@
     - tooling
     - tailscale
     - ollama
+    # After docker: the service account needs the `docker` group to exist.
+    # Before hermes: the hermes role's completion message points you at an
+    # endpoint to configure, and that endpoint is now this gateway.
+    - llama_swap
     - chezmoi
     # After chezmoi: once ~/.hermes/config.yaml is chezmoi-managed, chezmoi
     # lays it down first and the Hermes installer preserves the existing file

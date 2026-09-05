@@ -1,0 +1,210 @@
+# llama-swap — the model catalogue for this machine.
+#
+# Deployed to /etc/llama-swap/config.yaml by ansible/roles/llama_swap. Edit
+# THIS file and re-run ./setup.sh; the role validates it and reloads the
+# service. It is not watched — llama-swap's --watch-config polls the file
+# every 2s, and this repo doesn't poll.
+#
+# ---------------------------------------------------------------------------
+# READ THIS BEFORE EDITING A `cmd`
+# ---------------------------------------------------------------------------
+#
+# `cmd` is NOT run through a shell. Each line is comment-stripped, then the
+# whole block is shlex-split into argv and exec'd directly. There are no
+# pipes, no redirects, no globbing, and NO $VAR expansion. The only
+# substitutions are llama-swap's own:
+#
+#     ${PORT}       host port, allocated by llama-swap (see startPort)
+#     ${MODEL_ID}   this model's key — unusable as a container name here,
+#                   because HuggingFace ids contain "/" and Docker forbids it
+#     ${PID}        cmdStop only, substituted at stop time
+#     ${env.NAME}   from llama-swap's own environment, before YAML parsing
+#
+# ${env.HF_CACHE} is set in the systemd unit and is NOT ${HOME}. Two traps in
+# one line, and both are silent:
+#
+#   * A bare ${HOME} is passed to Docker as the literal four characters
+#     "${HOME}". Docker creates a directory with that name, bind-mounts it,
+#     the container finds an empty cache, and vLLM re-downloads 21.85 GiB.
+#   * ${env.HOME} looks like the fix and is worse. This service runs as the
+#     `llama-swap` user, so its $HOME is /var/lib/llama-swap — a valid path
+#     that Docker will happily create, with the same 21.85 GiB result.
+#
+# An unset ${env.*} is a hard config-load error, so a missing Environment=
+# line in the unit fails loudly instead of mounting the wrong directory.
+# That is the failure mode we want.
+#
+# /usr/bin/docker is absolute on purpose: a systemd service gets a minimal
+# PATH and there is no shell here to resolve a bare `docker`.
+
+# How long llama-swap holds an incoming request while a model loads.
+#
+# This is the number that makes a backend crash survivable. Hermes retries
+# transport errors, but its budget is roughly 45-60 seconds — an order of
+# magnitude short of a vLLM reload. The design does not rely on that budget:
+# it relies on llama-swap HOLDING the retried request until the model is
+# ready, so Hermes sees one slow reply instead of a failed run.
+#
+# A warm start (weights already in ~/.cache/huggingface) is a few minutes:
+# load, CUDA graph capture, then a silent torch.compile phase. 570s is several
+# times that, so it only fires on a genuinely wedged engine.
+#
+# Why 570 and not a rounder number: it must stay BELOW the client's own
+# timeout, so the inner layer fails first with a real error instead of the
+# outer layer timing out ambiguously. Hermes leaves the OpenAI client's
+# timeout unset unless you configure one, and openai-python's default is 600s
+# — so 570 gives 30s of margin and needs no Hermes configuration at all.
+#
+# If you measure a warm start that doesn't fit, raise BOTH ends together:
+# providers.<id>.timeout_seconds in ~/.hermes/config.yaml first, then this.
+# Raising this one alone inverts the ladder.
+#
+# Deliberately NOT sized for a cold start. Pulling 21.85 GiB takes up to 45
+# minutes and is a one-off you do by hand before adding a model to this file.
+# Nothing should hold an HTTP request open that long.
+healthCheckTimeout: 570
+
+# How long llama-swap waits for cmdStop before it gives up and SIGKILLs.
+#
+# The invariant: unloadTimeout > `docker stop -t` + margin. Docker's own
+# timeout must always win the race, because Docker knows how to clean up and
+# llama-swap's SIGKILL does not — it kills the docker CLI and orphans the
+# container, which keeps ~60 GB of unified memory held with nothing pointing
+# at it. That is the worst failure in this design because it is silent.
+# Recovery is `docker rm -f vllm-qwen3-35b`.
+unloadTimeout: 60
+
+# Host ports for upstream containers, allocated densely in sorted-model-ID
+# order, and only to models whose cmd contains ${PORT}. Do NOT hardcode a
+# port number anywhere: adding a model whose ID sorts earlier shifts every
+# later model down by one. Read the real port from `docker ps`.
+startPort: 5800
+
+# No authentication, stated explicitly rather than inherited from the default.
+# Everything on the listen address is open to whoever reaches it: inference,
+# the /ui log stream, and POST /api/models/unload. Binding to 127.0.0.1 in
+# the systemd unit is the whole of the access control, exactly as it was for
+# the vLLM container this replaces. Never `tailscale serve` or `funnel` it.
+apiKeys: []
+
+# Already llama-swap's default; pinned because turning it on would inject
+# synthetic assistant text — a banner, animated dots, and randomised jokes —
+# into the response stream while a model loads. A human in a chat UI enjoys
+# that. Hermes would parse it as model output.
+sendLoadingState: false
+
+models:
+
+  # Keyed by the exact HuggingFace id. This is what /v1/models reports and
+  # what Hermes has saved in ~/.hermes/config.yaml, so renaming the key
+  # silently 404s Hermes. It is also what gets forwarded upstream, which
+  # matches what vLLM serves it as — no useModelName needed.
+  "nvidia/Qwen3.6-35B-A3B-NVFP4":
+
+    # ${PORT} is the HOST port; the container always listens on 8000 inside.
+    # llama-swap's default proxy (http://localhost:${PORT}) would work, but
+    # it is spelled out because the host/container port distinction is the
+    # thing that breaks when someone changes the -p mapping.
+    proxy: "http://127.0.0.1:${PORT}"
+
+    # vLLM's own readiness endpoint. Docker publishes the port the instant the
+    # container starts, so a plain "is it up?" reports success while curl still
+    # gets "connection reset by peer" — the engine hasn't bound it inside yet.
+    # /health only answers once the model is actually loaded.
+    checkEndpoint: "/health"
+
+    # Three things here are load-bearing and easy to get wrong:
+    #
+    #   * The 127.0.0.1: prefix on -p is not optional. llama-swap's own docs
+    #     use `-p ${PORT}:8000`, which binds EVERY interface — including the
+    #     tailnet — on an endpoint with no authentication of any kind.
+    #   * --rm is not optional. Without it the second load fails with
+    #     "name already in use".
+    #   * No -d, ever. llama-swap tracks the model by this child process; a
+    #     detached client exits immediately, which reads as "the model died".
+    #
+    # --init is the one addition to the verified dgx_spark_gb10 profile: it
+    # gives the container a real PID 1 to reap and forward signals, which
+    # matters now that `docker stop` is the load-bearing shutdown path and
+    # vLLM spawns EngineCore subprocesses. It is a container-runtime concern,
+    # not a vLLM tuning flag.
+    #
+    # --entrypoint vllm ... serve: the image's own entrypoint is bypassed so
+    # this argv is the whole invocation, matching NVIDIA's playbook. Clearing
+    # it with --entrypoint "" instead would shlex-split into a literal empty
+    # argv element.
+    cmd: |
+      /usr/bin/docker run
+      --rm
+      --init
+      --name vllm-qwen3-35b
+      --gpus all
+      --ipc=host
+      --ulimit memlock=-1
+      --ulimit stack=67108864
+      -p 127.0.0.1:${PORT}:8000
+      -v ${env.HF_CACHE}:/root/.cache/huggingface/hub
+      --entrypoint vllm
+      vllm/vllm-openai:v0.28.0
+      serve
+      nvidia/Qwen3.6-35B-A3B-NVFP4
+      --trust-remote-code
+      --kv-cache-dtype=fp8
+      --attention-backend=flashinfer
+      --moe-backend=marlin
+      --gpu-memory-utilization=0.5
+      --max-model-len=262144
+      --max-num-seqs=8
+      --max-num-batched-tokens=8192
+      --enable-chunked-prefill
+      --async-scheduling
+      --enable-prefix-caching
+      --load-format=fastsafetensors
+      --enable-auto-tool-choice
+      --tool-call-parser=qwen3_xml
+      --reasoning-parser=qwen3
+
+    # Without cmdStop, llama-swap kills only the local docker CLI and the
+    # container keeps running with the GPU still held. -t 30 gives vLLM's
+    # EngineCore subprocesses time to exit on SIGTERM; 30 must stay
+    # comfortably under unloadTimeout (60) above.
+    cmdStop: /usr/bin/docker stop -t 30 vllm-qwen3-35b
+
+    # Never auto-unload. Reloading costs minutes and this machine has one
+    # user; freeing memory nobody is waiting for is not worth that.
+    ttl: 0
+
+  # ------------------------------------------------------------------------
+  # Canary — uncomment to exercise the swap path (V7 in the rollout plan).
+  #
+  # Small enough to load in seconds, real enough to prove allocation, docker
+  # run, health check, and eviction of the big model. Uncommenting also
+  # demonstrates the port-shift trap: "Q" sorts before "n", so this takes
+  # 5800 and Qwen3.6 moves to 5801.
+  #
+  # Prefetch the weights before uncommenting, or the first request pays a
+  # download inside healthCheckTimeout.
+  # ------------------------------------------------------------------------
+  #
+  # "Qwen/Qwen3-0.6B":
+  #   proxy: "http://127.0.0.1:${PORT}"
+  #   checkEndpoint: "/health"
+  #   cmd: |
+  #     /usr/bin/docker run
+  #     --rm
+  #     --init
+  #     --name vllm-qwen3-06b
+  #     --gpus all
+  #     --ipc=host
+  #     --ulimit memlock=-1
+  #     --ulimit stack=67108864
+  #     -p 127.0.0.1:${PORT}:8000
+  #     -v ${env.HF_CACHE}:/root/.cache/huggingface/hub
+  #     --entrypoint vllm
+  #     vllm/vllm-openai:v0.28.0
+  #     serve
+  #     Qwen/Qwen3-0.6B
+  #     --gpu-memory-utilization=0.1
+  #     --max-model-len=8192
+  #   cmdStop: /usr/bin/docker stop -t 30 vllm-qwen3-06b
+  #   ttl: 0
