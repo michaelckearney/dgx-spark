@@ -154,10 +154,9 @@ The model picker lists whatever `/v1/models` reports. That is now the gateway,
 which answers with the full catalogue whether or not anything is loaded — so
 nothing needs starting first.
 
-One thing to set by hand afterwards: a request timeout that outlasts a model
-load. Hermes' own retry budget is ~45–60 seconds, an order of magnitude short
-of a reload, and the design depends on the gateway holding the request rather
-than Hermes retrying. See the timeout ladder in
+Nothing else to configure. Hermes leaves the OpenAI client timeout unset, and
+the gateway's `healthCheckTimeout` is set just under openai-python's 600s
+default so a model load is held to completion. See the timeout ladder in
 [`../llama-swap/README.md`](../llama-swap/README.md).
 
 ## Full cleanup

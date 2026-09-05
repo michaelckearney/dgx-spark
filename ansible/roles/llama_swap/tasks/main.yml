@@ -29,6 +29,26 @@
       The llama_swap role targets aarch64 (DGX Spark); this host reports
       {{ ansible_facts['architecture'] }}.
 
+# This role takes over 127.0.0.1:8000, which the hand-started vLLM stack used
+# to own. Converging has to include taking it, or the first run leaves
+# llama-swap crash-looping against a port it can't bind — and because the unit
+# is Type=simple, systemd reports a successful start either way, so the
+# breakage would be silent until someone asked for a model.
+#
+# Stopped by container name rather than `docker compose down`, so this keeps
+# working after workloads/vllm/compose.yaml is retired. `restart:
+# unless-stopped` respects a deliberate stop, so it stays down across reboots.
+- name: Check for the superseded vLLM container
+  ansible.builtin.command: docker ps -q --filter name=^vllm-server$
+  register: llama_swap_legacy_vllm
+  changed_when: false
+  failed_when: false
+  check_mode: false          # read-only probe; safe to run during --check
+
+- name: Stop the superseded vLLM container
+  ansible.builtin.command: docker rm -f vllm-server
+  when: llama_swap_legacy_vllm.stdout | default('') | length > 0
+
 - name: Create the llama-swap system group
   ansible.builtin.group:
     name: "{{ llama_swap_user }}"
@@ -121,3 +141,25 @@
         enabled: true
         state: started
         daemon_reload: true
+
+    # Handlers normally run at the end of the play, so on a converge that only
+    # changed the config the probe below would test the OLD process. Flushing
+    # here means the thing being verified is the thing just deployed.
+    - name: Apply pending llama-swap restarts before verifying
+      ansible.builtin.meta: flush_handlers
+
+    # Type=simple means systemd calls the start successful as soon as the
+    # process forks, so a bind failure or a rejected config would otherwise
+    # pass this playbook and only surface later as a crash-loop. Ask the
+    # gateway a real question instead: /v1/models is served from the
+    # catalogue, so it answers immediately without loading anything.
+    - name: Verify the gateway is serving
+      ansible.builtin.uri:
+        url: "http://{{ llama_swap_listen }}/v1/models"
+        return_content: true
+      register: llama_swap_probe
+      retries: 5
+      delay: 2
+      until: llama_swap_probe.status | default(0) == 200
+      changed_when: false
+      when: not ansible_check_mode

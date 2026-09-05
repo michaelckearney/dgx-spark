@@ -46,17 +46,23 @@
 # ready, so Hermes sees one slow reply instead of a failed run.
 #
 # A warm start (weights already in ~/.cache/huggingface) is a few minutes:
-# load, CUDA graph capture, then a silent torch.compile phase. 1800s is
-# roughly 10x that, so it only fires on a genuinely wedged engine.
+# load, CUDA graph capture, then a silent torch.compile phase. 570s is several
+# times that, so it only fires on a genuinely wedged engine.
+#
+# Why 570 and not a rounder number: it must stay BELOW the client's own
+# timeout, so the inner layer fails first with a real error instead of the
+# outer layer timing out ambiguously. Hermes leaves the OpenAI client's
+# timeout unset unless you configure one, and openai-python's default is 600s
+# — so 570 gives 30s of margin and needs no Hermes configuration at all.
+#
+# If you measure a warm start that doesn't fit, raise BOTH ends together:
+# providers.<id>.timeout_seconds in ~/.hermes/config.yaml first, then this.
+# Raising this one alone inverts the ladder.
 #
 # Deliberately NOT sized for a cold start. Pulling 21.85 GiB takes up to 45
 # minutes and is a one-off you do by hand before adding a model to this file.
 # Nothing should hold an HTTP request open that long.
-#
-# Must stay BELOW the Hermes request timeout, so the inner layer fails first
-# with a real error instead of the outer layer timing out ambiguously.
-# See workloads/llama-swap/README.md for the full timeout ladder.
-healthCheckTimeout: 1800
+healthCheckTimeout: 570
 
 # How long llama-swap waits for cmdStop before it gives up and SIGKILLs.
 #

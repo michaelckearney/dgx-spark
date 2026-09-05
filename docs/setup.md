@@ -262,26 +262,20 @@ hermes          # open the TUI
 the llama-swap gateway, which answers with the full catalogue whether or not a
 model is loaded — so nothing needs starting first.
 
-**Set a request timeout that outlasts a model load.** This is the one manual
-step the gateway depends on. Hermes retries transport errors, but its budget is
-roughly 45–60 seconds — an order of magnitude short of a vLLM reload. The
-design works by the gateway *holding* the request until the model is ready, so
-Hermes never enters retry; if Hermes gives up first, that hold is wasted. In
-`~/.hermes/config.yaml`:
+**No timeout configuration needed.** Hermes leaves the OpenAI client's timeout
+unset unless you give it one, and openai-python's default is 600s. The
+gateway's `healthCheckTimeout` is deliberately set just under that, at 570s, so
+a model load is held to completion and the inner layer is the one that gives up
+first if something is genuinely wedged.
 
-```yaml
-providers:
-  <provider_id>:
-    timeout_seconds: 2100
-    stale_timeout_seconds: 300
-```
+That matters because Hermes' own retry budget — three attempts with jittered
+backoff — is roughly 45–60 seconds, an order of magnitude short of a vLLM
+reload. The design works by the gateway *holding* the request rather than
+Hermes retrying it.
 
-`providers` is empty by default, so you are adding this block. Read the file
-after `hermes model` has run to find the real `<provider_id>`. The values must
-exceed `healthCheckTimeout` in the gateway's config (1800s) — see the timeout
-ladder in [`workloads/llama-swap/README.md`](../workloads/llama-swap/README.md).
-This is also the first thing that makes `~/.hermes/config.yaml` genuinely worth
-committing to `chezmoi/`.
+If you ever measure a warm start that doesn't fit in 570s, raise both ends
+together; the ladder is in
+[`workloads/llama-swap/README.md`](../workloads/llama-swap/README.md).
 
 Notes:
 

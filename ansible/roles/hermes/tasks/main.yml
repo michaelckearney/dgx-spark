@@ -40,7 +40,7 @@
       http://localhost:8000/v1 and `hermes tools` to enable capabilities. The
       model picker reads /v1/models from the llama-swap gateway, which answers
       with the full catalogue whether or not a model is loaded — so nothing
-      needs starting first. Then set a request timeout that outlasts a model
-      load; see workloads/llama-swap/README.md. Upgrade later with
-      `hermes update`, not by re-running this playbook.
+      needs starting first, and no timeout tuning is required — see
+      workloads/llama-swap/README.md. Upgrade later with `hermes update`, not
+      by re-running this playbook.
   when: hermes_install.changed

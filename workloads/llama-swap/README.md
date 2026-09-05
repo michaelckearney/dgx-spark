@@ -112,9 +112,26 @@ ambiguous one at the layer that doesn't.
 | Container stop | `docker stop -t` | `cmdStop` in `config.yaml` | 30s |
 | Gateway unload | `unloadTimeout` | `config.yaml` | 60s |
 | systemd stop | `TimeoutStopSec` | the unit | 180s |
-| Model load | `healthCheckTimeout` | `config.yaml` | 1800s |
-| Hermes request | `timeout_seconds` | `~/.hermes/config.yaml` | 2100s |
-| Hermes stall | `stale_timeout_seconds` | `~/.hermes/config.yaml` | 300s |
+| Model load | `healthCheckTimeout` | `config.yaml` | 570s |
+| Hermes request | openai-python default | *unset* | 600s |
+
+Nothing needs configuring in Hermes. It leaves the OpenAI client's timeout
+unset unless you give it one, and openai-python's default is 600s — so 570
+sits just inside it with 30s of margin. That's the whole reason for the odd
+number.
+
+If you measure a warm start that doesn't fit in 570s, raise **both** ends,
+outermost first, in `~/.hermes/config.yaml`:
+
+```yaml
+providers:
+  <provider_id>:
+    timeout_seconds: 2100
+```
+
+then `healthCheckTimeout` to something below it. Raising `healthCheckTimeout`
+alone inverts the ladder: the gateway keeps holding a request the client has
+already abandoned.
 
 Two of these are load-bearing for different reasons.
 
