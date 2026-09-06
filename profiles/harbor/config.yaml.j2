@@ -1,0 +1,36 @@
+# Hermes config for the `harbor` profile. Managed by the dgx-spark repo
+# (ansible/roles/hermes_profiles) — rendered over
+# ~/.hermes/profiles/harbor/config.yaml on every ./setup.sh.
+# Edit profiles/harbor/config.yaml.j2, not the rendered copy.
+
+# Same llama-swap gateway as every other profile on this machine.
+model:
+  default: "nvidia/Qwen3.6-35B-A3B-NVFP4"
+  provider: "vllm"
+  base_url: "http://{{ llama_swap_listen }}/v1"
+
+skills:
+  # Empty for now — a place to put Harbor's own conventions as they settle.
+  # Read live from the checkout, so a skill added here works without a
+  # converge. Hermes silently ignores a path that does not exist, which is why
+  # the directory is committed with a .gitkeep.
+  #
+  # This does not replace what the agent learns on its own: bundled skills and
+  # the background review fork both write to the profile's own skills/, and
+  # external dirs never collide with either.
+  external_dirs:
+    - "{{ hermes_profiles_source }}/harbor/skills"
+
+# `manual` is a review step, not a security control — see the sysadmin
+# profile's config for the reasoning, which is the same here.
+#
+# In practice this is quieter than it sounds: only commands matching the
+# dangerous-pattern set reach a prompt, so ordinary development work — tests,
+# builds, git — runs without one. Approving something permanently writes it to
+# command_allowlist, so the prompts thin out as you go.
+approvals:
+  mode: manual
+  timeout: 300
+  deny:
+    - "*--yolo*"
+    - "*HERMES_YOLO_MODE*"
