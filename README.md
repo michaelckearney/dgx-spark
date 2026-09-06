@@ -102,6 +102,12 @@ presents as a rejected key rather than a permissions problem. `chmod 700 ~/.ssh`
   right vLLM container on demand and brings it back if it dies. The one
   daemon this repo runs — see [The one daemon](#the-one-daemon)
 - **Hermes Agent** — installed, left unconfigured (see below)
+- **Hermes `sysadmin` profile** — a repo-managed agent profile that makes
+  OS changes *through* this repo instead of directly on the machine: it
+  edits the `tooling` role, converges, verifies, and commits. Its contract
+  is [`profiles/sysadmin/SOUL.md`](profiles/sysadmin/SOUL.md). It commits
+  but never pushes, and it has no gateway — SSH only, so there is no path
+  from an inbound message to a root shell.
 
 **Out of scope** — what I happen to be running on it:
 
@@ -217,12 +223,16 @@ directly, without a passthrough layer in between.
 │       ├── ollama/                      # native Ollama install + service
 │       ├── llama_swap/                  # model gateway install + service
 │       ├── chezmoi/                     # chezmoi install + apply
-│       └── hermes/                      # Hermes CLI install (unconfigured)
+│       ├── hermes/                      # Hermes CLI install (unconfigured)
+│       └── hermes_sysadmin/             # sysadmin agent profile, from files
 ├── chezmoi/
 │   ├── dot_bashrc
 │   ├── dot_zshrc
 │   ├── dot_p10k.zsh
 │   └── dot_gitconfig.tmpl               # templated git identity + gh helper
+├── profiles/
+│   └── sysadmin/                        # SOUL.md + config.yaml, copied
+│                                        #   to ~/.hermes/profiles/sysadmin
 ├── workloads/
 │   ├── llama-swap/                      # model catalogue — copied to /etc
 │   └── vllm/                            # Qwen3.6-35B-A3B NVFP4: flags + why

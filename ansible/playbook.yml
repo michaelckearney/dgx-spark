@@ -20,6 +20,10 @@
     # lays it down first and the Hermes installer preserves the existing file
     # rather than overwriting it with its template.
     - hermes
+    # After hermes: the profile directory this role writes into lives under
+    # the Hermes home that the installer creates, and the role skips entirely
+    # when that home isn't there yet.
+    - hermes_sysadmin
 
   post_tasks:
     # Deliberately last. Switching the login shell before Oh My Zsh,

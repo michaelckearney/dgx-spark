@@ -58,3 +58,14 @@ llama_swap_config_source: "{{ playbook_dir | dirname }}/workloads/llama-swap/con
 # silently re-download 21.85 GiB). This is why the value is set here, where
 # machine-specific paths already live.
 llama_swap_hf_cache: "{{ target_home }}/.cache/huggingface/hub"
+
+# The sysadmin Hermes profile — a repo-managed agent profile whose job is to
+# make OS changes through this repo rather than directly on the machine. Its
+# contract is profiles/sysadmin/SOUL.md; the role that lays it down is
+# ansible/roles/hermes_sysadmin.
+#
+# Same cross-repo reference as chezmoi_source and llama_swap_config_source
+# above: the source of truth lives where it is readable and reviewable, and
+# Ansible copies it into place.
+hermes_sysadmin_profile_source: "{{ playbook_dir | dirname }}/profiles/sysadmin"
+hermes_sysadmin_profile_dir: "{{ target_home }}/.hermes/profiles/sysadmin"
