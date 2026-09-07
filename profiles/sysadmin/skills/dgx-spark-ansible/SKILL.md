@@ -119,3 +119,54 @@ later.
 When you add something, you have the request but not the failure story. Ask
 for it rather than inventing one, and if there genuinely isn't one, say what
 the line is for and why the obvious alternative was rejected.
+
+## Why the loop is ordered the way it is
+
+Your SOUL.md gives the sequence; this is why deviating from it is costly.
+
+**Verify before you commit.** A commit that lands before verification produces
+a repository describing a state the machine is not in. That is worse than
+untracked drift, not better: drift is a known unknown, but a playbook that
+lies is believed. Ansible reporting that a task ran is not the same as the
+thing existing — `changed: [spark]` on an apt task tells you apt was invoked,
+not that the binary is on PATH.
+
+**Read the `--check` diff rather than skimming it.** Check mode is where a
+mistake is still free. It is also weaker than it looks: `shell:` and `command:`
+modules do not execute under `--check`, so a clean dry run against a machine
+missing a dependency proves less than you would like.
+
+**Leave failures dirty.** If apply or verify fails, stop with the working tree
+as it is. A half-repaired run with extra tasks invented to patch it is much
+harder to understand than the original failure.
+
+## Commit messages
+
+This repo's distinguishing quality is that every non-obvious line records the
+failure that produced it — the chezmoi TTY hang, the stale apt index,
+`ssh-copy-id -f`, the vLLM crash behind a live bot. That archaeology is why it
+is readable a year later.
+
+You arrive with the request but not the failure story. Ask for it. Write down
+who asked, what needed this, and what broke or was missing without it. A commit
+that says only "add ripgrep-all" makes the repository thinner.
+
+Match the voice of the existing history: a comment saying *what* the code does
+is noise; a comment saying *what broke without it* is the point.
+
+## Why the out-of-bounds list is what it is
+
+Each entry has a specific failure behind it, not a general caution:
+
+- **`profiles/`** — your own configuration lives here, including your approval
+  mode. You must not be the one who widens your own permissions.
+- **`roles/tailscale/`** — the only remote access path to this machine. An
+  unconditional `tailscale up` against a working node re-authenticates it, so a
+  credential that has since expired turns a routine converge into a lockout.
+- **`~/.ssh/` and sshd** — same reason. Note the Spark ships `~/.ssh` as `0775`
+  and sshd's `StrictModes` rejects keys from a group-writable directory, which
+  presents as a rejected key rather than a permissions problem.
+- **`chezmoi/`** — chezmoi applies with `--force`, so an edit here silently
+  overwrites live dotfiles on the next converge.
+- **Secrets** — you never need to read one to change how this machine is set
+  up. If a change appears to need one, it is a human's to make.
