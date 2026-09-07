@@ -118,7 +118,7 @@ presents as a rejected key rather than a permissions problem. `chmod 700 ~/.ssh`
 - **llama-swap** — a model gateway on `127.0.0.1:8000`, installed natively and
   run as a systemd service. Hermes asks it for a model by name; it starts the
   right vLLM container on demand and brings it back if it dies. The one
-  daemon this repo runs — see [The one daemon](#the-one-daemon)
+  model gateway — see [What it installs, it runs](#what-it-installs-it-runs)
 - **Hermes Agent** — installed, left unconfigured (see below)
 - **Hermes agent profiles** — repo-managed, materialised from
   [`profiles/`](profiles/) on every run. `sysadmin` makes OS changes *through*
@@ -158,59 +158,75 @@ long vLLM flag list the directory exists to preserve, and it belongs next to
 [`workloads/vllm/README.md`](workloads/vllm/README.md), which explains where
 those flags come from.
 
-## Installed vs. running
+## What it installs, it runs
 
-The dividing line this repo cares about: Ansible is good at *"make sure X is
-installed."* It is bad at *"keep X running."* So installation lives in
-`ansible/`, and workloads live in `workloads/` and are started on demand.
+Ansible is good at *"make sure X is installed"* and bad at *"keep X running"* —
+so the two jobs are split rather than blurred. Ansible installs a unit and
+enables it; **systemd** keeps it alive. Nothing is started with a converge-time
+`docker compose up`, and nothing depends on `./setup.sh` being re-run to come
+back after a reboot.
 
-Keeping something running is systemd's job, not Ansible's — which is why the
-one service this repo runs gets a unit rather than a converge-time `docker
-compose up`. Ansible installs and enables it; systemd keeps it alive. See
-[The one daemon](#the-one-daemon).
+Four services are managed this way:
 
-Hermes follows this too. The `hermes` role installs the CLI with
-`--non-interactive`, which skips the setup wizard — so it arrives installed but
-unconfigured. Configure it by hand (`hermes model`, `hermes tools`) against the
-gateway; once the configuration is worth keeping, check `~/.hermes/config.yaml`
-into `chezmoi/`. Its `~/.hermes/.env` holds API keys and never belongs in git.
+| Service | What it is |
+|---|---|
+| `tailscaled` | the network path to this machine |
+| `ollama` | everyday local inference |
+| `llama-swap` | the model gateway — see below |
+| `hermes-gateway` | the agent's cron ticker and messaging adapters |
 
-## The one daemon
+This repo used to say *no timers, no daemons, no polling*, with llama-swap as a
+single reasoned exception. That framing is gone: with four services under
+management it described the code less and less accurately, and a rule you keep
+excepting is not a rule. The honest version is the heading — **what this repo
+installs, it also runs.**
 
-The rule was *no timers, no daemons, no polling*. `llama-swap` breaks it. This
-is the argument for why, so that it reads as a decision rather than a drift.
+What survives from the old rule is the part that was actually load-bearing:
+**nothing resurrects a workload you stopped on purpose, and nothing holds the
+GPU speculatively.**
 
-**What runs is a router, not a workload.** llama-swap is a small Go process
-holding `127.0.0.1:8000`. It owns no GPU, loads no weights, and does nothing
-until something asks it for a model. No preload hook is configured, so a
-rebooted machine nobody talks to sits at **zero** GPU — which is *more*
-faithful to "runs when I say so" than the thing it replaces: a vLLM container
-with `restart: unless-stopped` that came back at every boot and held ~60 GB
-waiting for a request that might never arrive.
+`workloads/` is now documentation plus one config file. The vLLM container is
+started by llama-swap on demand and by nothing else.
 
-**It retires an exception rather than adding one.** vLLM carried
-`restart: unless-stopped` because it once crashed mid-request
-(`CUBLAS_STATUS_INTERNAL_ERROR`) and stayed dead, while the Hermes Telegram
-gateway — which *does* auto-start — carried on accepting messages it had no
-model to answer. That policy fixed the container but not the incident: the
-request in flight when it died still failed, and so did every request during
-the multi-minute reload. llama-swap notices the engine exit, relaunches on the
-next request, and **holds that request until the model is ready**. The caller
-sees a slow reply instead of an error. Same problem, better answer — and the
-container no longer needs a restart policy, which also removes the second
-controller that would otherwise be fighting the gateway over the GPU.
+### Why llama-swap earns a daemon
+
+**What runs is a router, not a workload.** A small Go process holding
+`127.0.0.1:8000`. It owns no GPU, loads no weights, and does nothing until
+something asks it for a model. No preload hook is configured, so a rebooted
+machine nobody talks to sits at **zero** GPU — more faithful to "runs when I
+say so" than the thing it replaced: a vLLM container with
+`restart: unless-stopped` that came back at every boot and held ~60 GB waiting
+for a request that might never arrive.
+
+**It retired an exception rather than adding one.** vLLM carried that restart
+policy because it once crashed mid-request (`CUBLAS_STATUS_INTERNAL_ERROR`) and
+stayed dead, while the Hermes gateway carried on accepting messages it had no
+model to answer. That fixed the container but not the incident: the request in
+flight still failed, and so did every request during the multi-minute reload.
+llama-swap notices the engine exit, relaunches on the next request, and **holds
+that request until the model is ready**. The caller sees a slow reply instead of
+an error.
 
 **It still doesn't poll.** `--watch-config` polls the config file every two
 seconds and is deliberately unused. That file is only ever written by
 `./setup.sh`, which reloads the service itself.
 
 What this costs: a crash at 03:00 is repaired on the next request, not
-proactively. This is recovery on demand, not supervision. For the thing it's
-for — surviving an overnight run, where requests are arriving — that's the
-right trade, but it is a trade.
+proactively. Recovery on demand, not supervision — the right trade for
+surviving an overnight run, but a trade.
 
-Operational detail lives in
-[`workloads/llama-swap/README.md`](workloads/llama-swap/README.md).
+### Hermes
+
+The `hermes` role installs the CLI with `--non-interactive`, which skips the
+setup wizard, and stands up `hermes-gateway` as a user service. The gateway is
+**not** conditional on Telegram: it runs the cron ticker for every profile, so
+scheduled agent work depends on it whether or not a messaging adapter exists.
+`loginctl enable-linger` is what lets it survive logout and return after a
+reboot.
+
+Model and tool configuration still happen by hand (`hermes model`,
+`hermes tools`); once worth keeping, check `~/.hermes/config.yaml` into
+`chezmoi/`. `~/.hermes/.env` holds credentials and never belongs in git.
 
 ## Where things live on disk
 
@@ -328,8 +344,8 @@ auth key rots in place — silently, to be discovered on the day you rebuild. Se
 
 ## Design principles
 
-- **Runs when I say so** — no timers, no polling, and no workload starts
-  itself. One daemon is an exception; see [The one daemon](#the-one-daemon)
+- **Nothing resurrects what you stopped, and nothing holds the GPU
+  speculatively** — services are managed, workloads are demand-driven
 - **Idempotent** — safe to re-run at any point
 - **Non-destructive** — never reinstalls or modifies pre-installed system
   software (Docker, NVIDIA Container Toolkit, drivers, CUDA)

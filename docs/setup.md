@@ -103,8 +103,8 @@ one-model-at-a-time rule only covers its own models.
 
 ## llama-swap
 
-The model gateway, and the one daemon this repo runs — see
-[The one daemon](../README.md#the-one-daemon) for why that exception exists.
+The model gateway — see
+[What it installs, it runs](../README.md#what-it-installs-it-runs).
 It holds `127.0.0.1:8000` and starts the right vLLM container on demand.
 
 ```bash

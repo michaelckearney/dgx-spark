@@ -43,3 +43,44 @@
       workloads/llama-swap/README.md. Upgrade later with `hermes update`, not
       by re-running this playbook.
   when: hermes_install.changed
+
+# --- the gateway ---------------------------------------------------------------
+# Stood up here rather than alongside the Telegram token, and unconditionally.
+#
+# The gateway is not a Telegram thing. It runs the cron ticker for every
+# profile, so scheduled agent work depends on it whether or not a messaging
+# adapter is configured. Installing it only when a bot token exists made "do I
+# have a bot?" decide "does scheduled work run?", and a machine rebuilt without
+# Telegram would have lost the ticker silently.
+#
+# It needs the binary the task above installs. Shell modules don't run under
+# --check, so on a dry run against a fresh machine that install is skipped and
+# these must be too — the same gate the ollama and llama_swap roles use.
+
+- name: Check whether the Hermes CLI is installed
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['env']['HOME'] }}/.local/bin/hermes"
+  register: hermes_binary
+
+- name: Run the Hermes gateway as a service
+  when: hermes_binary.stat.exists
+  block:
+
+    # A user service with no logged-in session dies with the session that
+    # started it. Lingering is what lets the gateway survive logout and come
+    # back after a reboot, which is what --start-on-login is supposed to mean.
+    - name: Allow this user's services to run without a login session
+      ansible.builtin.command: "loginctl enable-linger {{ ansible_facts['user_id'] }}"
+      args:
+        creates: "/var/lib/systemd/linger/{{ ansible_facts['user_id'] }}"
+      become: true
+
+    # A no-op when the unit already exists — it prints "Service already
+    # installed" and returns without restarting. Restarting on a token change
+    # is the secrets role's handler, not this.
+    - name: Install the Hermes gateway service
+      ansible.builtin.command: hermes gateway install --start-now --start-on-login
+      register: gateway_install
+      changed_when: "'already installed' not in (gateway_install.stdout | lower)"
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"
