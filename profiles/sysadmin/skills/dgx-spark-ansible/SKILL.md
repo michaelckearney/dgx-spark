@@ -14,17 +14,27 @@ nothing, so anything you change on the machine has to be represented here.
 
 ## The shape of the repo
 
-- `setup.sh` — installs Ansible if absent, then runs the playbook against
-  localhost. Never prompts. Forwards unknown arguments to `ansible-playbook`.
-- `configure.sh` — the only interactive script. Collects secrets and writes
-  them straight through to the tool that owns them. Stores nothing itself.
-- `ansible/playbook.yml` — role order matters and every non-obvious ordering
-  carries a comment explaining what breaks otherwise. Read those before
-  reordering anything.
-- `ansible/group_vars/all.yml` — machine-specific values and cross-repo paths.
+- `setup.sh` — the only command. Installs Ansible if absent, decides whether a
+  human is present, and runs `site.yml`. It contains no other logic, and new
+  logic does not belong in it.
+- `ansible.cfg` — inventory path, roles path, output format. Present so that a
+  bare `ansible-playbook site.yml` works from a clone with no flags.
+- `site.yml` — the play, at the repo root. Role order matters and every
+  non-obvious ordering carries a comment explaining what breaks otherwise.
+  Read those before reordering anything.
+- `inventory/hosts.yml` — one host, `connection: local`.
+- `inventory/group_vars/all/main.yml` — site-specific values only (git
+  identity, tailnet tags). Everything else belongs in the owning role's
+  `defaults/main.yml`.
+- `roles/<name>/` — `defaults/`, `tasks/`, `handlers/`, `templates/`.
 - `workloads/` — things launched by hand, not by Ansible. The one exception is
   `workloads/llama-swap/config.yaml`, which Ansible copies to `/etc`.
 - `profiles/` — the Hermes agent profiles, including this one.
+
+There is no `configure.sh`. Secrets are prompted for by the `secrets` role
+when a human is present, and applied from `/etc/dgx-spark/credstore` whether
+or not one is. You will normally run with no human present, which means every
+prompt is skipped and the run still succeeds.
 
 ## Rules that are not negotiable
 
@@ -84,12 +94,19 @@ refreshes the apt index, and a stale index gives 404s on withdrawn versions.
 Do not add a package by running `apt install` and then editing the file to
 match. Edit first, converge, then verify.
 
-## Ownership under `become: true`
+## Privilege
 
-The playbook runs as root. Ansible's `file` module applies ownership to the
-final path component only, so a nested path creates root-owned intermediate
-directories. When writing under `{{ target_home }}`, create each level
-explicitly with `owner: "{{ target_user }}"`.
+The play does **not** escalate. It runs as the login user, and individual
+tasks that need root carry `become: true` themselves.
+
+So when you add a task, ask what it touches. Anything under `/etc`, `/usr`,
+`/var`, apt, or systemd needs `become: true`. Anything under the user's own
+home needs nothing, and `ansible_user_id` and `ansible_env.HOME` are already
+correct without being passed in.
+
+Do not add `become` at the play level to make one task work. That inversion is
+what an earlier version of this repo did, and it forced every user-level task
+to undo it.
 
 ## Comment style
 

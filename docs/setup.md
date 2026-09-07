@@ -13,15 +13,36 @@ Already present on a stock DGX Spark (Ubuntu-based):
 ```bash
 git clone https://github.com/michaelckearney/dgx-spark.git
 cd dgx-spark
-./setup.sh --check   # dry run: shows a diff of what would change
-./setup.sh           # apply
+./setup.sh
 ```
 
-You'll be prompted for your sudo password. The script installs Ansible if it
-isn't already present, then runs `ansible/playbook.yml` against localhost.
+One command, first run and every run. It installs Ansible if absent, runs
+`site.yml` against this machine, and asks for anything it has never asked about
+before — but only if there is a terminal to ask into.
+
+```bash
+./setup.sh --check   # dry run with a diff
+```
+
+You are prompted for your sudo password on the first run, before the `sudo`
+role has granted passwordless sudo. Not after.
 
 There is no background reconciliation. If you change something in this repo,
 nothing happens on the machine until you re-run `./setup.sh` yourself.
+
+### Unattended runs
+
+With no terminal attached — an agent, cron, a pipe — nothing is prompted. Every
+stored secret is applied, everything else is skipped, the run reports what is
+missing and exits 0. That is why this repo has one command rather than two.
+
+### Partial runs
+
+Every role is tagged, so you can converge a slice:
+
+```bash
+./setup.sh --tags tooling,llama-swap
+```
 
 ## What gets configured
 
@@ -118,36 +139,59 @@ mount silently causes a 21.85 GiB re-download.
 
 ## Secrets
 
-`setup.sh` never prompts and supplies no credentials. `configure.sh` collects
-them and is safe to re-run. It needs no sudo except for `tailscale`, which
-cannot join a tailnet without root — silent here given the passwordless sudo
-this repo configures:
+`./setup.sh` asks for anything it has never asked about, when a human is
+present. There is no second command.
 
-```bash
-./configure.sh              # prompt for anything still missing
-./configure.sh github       # rotate exactly one
-./configure.sh --list       # show what is configured — never values
-```
+### Three states, not two
 
-**Nothing is stored by this repo.** Each secret is written straight through to
-the tool that owns it, so no secret exists in two places and there is no extra
-store to protect:
+| State | Meaning |
+|---|---|
+| **stored** | in `/etc/dgx-spark/credstore`, applied on every run |
+| **declined** | you pressed Enter; a marker in `/etc/dgx-spark/declined` stops the asking |
+| **never asked** | you get prompted, if there is a terminal |
 
-| Secret | Written to | Used for |
+Declining is a real answer and it is remembered. Without that, every run would
+nag about a decision you already made, which is the fastest way to train
+someone to stop reading prompts. Delete the marker file to be asked again.
+
+Bad input is caught at the prompt: each secret carries a format check, you get
+three attempts, and empty input always passes so skipping never fails a run.
+
+### The credential store
+
+`/etc/dgx-spark/credstore` holds one root-owned file per secret, mode `0600`,
+in a `0700` directory. It is **not encrypted**, deliberately. The same values
+end up in plaintext in gh's token store and `~/.hermes/.env` on the same disk,
+so encrypting the source while its copies sit unencrypted would be ceremony
+rather than security.
+
+The store is not in this repo and must never be. Back it up separately: a git
+clone plus a restored credstore is what lets `./setup.sh` rebuild this machine
+with nobody retyping anything.
+
+### How each secret converges
+
+The `secrets` role applies what is stored. The rule differs per secret, because
+what each consumer will tell you back differs:
+
+| Secret | Written to | Rule |
 |---|---|---|
-| `github` | gh's own token store, via `gh auth login --with-token` | `git push` over HTTPS |
-| `telegram` | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS` in `~/.hermes/.env` (`0600`), then `hermes gateway install` | Hermes messaging |
-| `tailscale` | consumed by `tailscale up` at join time; nothing is kept | remote SSH from anywhere |
+| `github` | gh's token store | `gh auth token` returns the current value — plain diff, re-authenticate only when they differ |
+| `telegram` | `~/.hermes/.env` (`0600`) | `lineinfile` does the diff; a handler restarts the gateway **only** when a line changed |
+| `tailscale` | consumed by `tailscale up` at join | Nothing returns it and nothing needs it twice. Gated on *not already joined* |
 
-Status is derived by asking the real consumer (`gh auth status`, grepping the
-`.env`), not from a manifest of our own — so it cannot drift.
+The Tailscale rule is the one to understand. It is the only path that reaches
+this machine remotely, so a converge must never re-authenticate a working node
+against a credential that has since expired. The stored value is for the next
+rebuild, not for this run.
 
-**Everything here is optional and skippable.** Press Enter at any prompt to skip
-that secret; `configure.sh` still exits 0, because not having set something up
-yet is a normal state rather than a failure. Nothing else in the repo depends on
-either credential — `setup.sh` never consults them, Hermes runs fine from the
-terminal without Telegram, and the only consequence of skipping `github` is that
-pushing over HTTPS won't work until you supply it.
+The Telegram handler gate matters for a smaller reason that still bites:
+without it, adding an apt package would restart the gateway and drop a live
+conversation.
+
+**Everything here is optional.** Skip any secret and the rest of the machine
+still converges — Tailscale installs but does not join, Hermes installs but has
+no Telegram gateway.
 
 ### GitHub token
 
@@ -166,7 +210,7 @@ reliable choice here.
 
 **A PAT does not refresh itself**, unlike `gh auth login`'s browser flow. When it
 expires, pushes start failing with no other warning — re-run
-`./configure.sh github`.
+deleting the stored file and re-running `./setup.sh`.
 
 ### Telegram
 
@@ -177,15 +221,15 @@ Leaving the allowlist blank is safe — Hermes denies unknown senders and routes
 them through DM pairing (`hermes gateway pairing approve`). Blank does **not**
 mean anyone can use the bot.
 
-Two things `configure.sh` handles that are easy to get wrong by hand:
+Two things the `secrets` role handles that are easy to get wrong by hand:
 
 - `hermes config set TELEGRAM_ALLOWED_USERS ...` silently writes a **dead key**
   into `config.yaml` that nothing reads. The allowlist must go into `.env`
-  directly (or via `hermes config set telegram.allow_from`).
+  directly, which is what the role does with `lineinfile`.
 - A malformed or placeholder bot token is accepted by the `.env` writer and then
   **silently disables** the Telegram adapter at gateway start — an error in the
-  log and nothing else. `configure.sh` validates against Hermes' own regex
-  before writing.
+  log and nothing else. The prompt validates against Hermes' own regex before
+  the value is ever stored.
 
 Check the gateway with `hermes gateway status` or
 `journalctl --user -u hermes-gateway -f`.
@@ -208,12 +252,24 @@ ssh michaelckearney@100.x.y.z
 **Your laptop needs the Tailscale client too**, signed in to the same account —
 it's a mesh, so there's no tailnet to reach the Spark over otherwise.
 
-Ansible installs the client and starts `tailscaled`; joining happens in
-`./configure.sh tailscale` with a one-off auth key from
-<https://login.tailscale.com/admin/settings/keys>. The key is written to a
-mode-`0600` temp file and passed as `--auth-key=file:...` rather than on the
-command line, where it would be visible in `ps`; a trap removes it on every exit
-path including Ctrl-C.
+The `tailscale` role installs the client and starts `tailscaled`. Joining is
+the `secrets` role's job, and it happens **only if this machine is not already
+on the tailnet**. A joined node takes the skip path every time, because an
+unconditional `tailscale up` re-authenticates it, and a credential that had
+since expired would turn a routine converge into a lockout on the one path that
+reaches this machine remotely.
+
+Prefer an **OAuth client secret**
+(<https://login.tailscale.com/admin/settings/oauth>) over a one-off auth key.
+Auth keys expire at 90 days maximum and one-off keys work exactly once, so a
+stored auth key rots in place — silently, to be discovered on the day you
+rebuild. An OAuth client secret does not expire and mints keys on demand. It
+requires a tag: set `tailscale_tags` in `inventory/group_vars/all/main.yml`.
+
+Either way the credential is staged in a mode-`0600` file and passed as
+`--auth-key=file:...` rather than on the command line, where it would be
+visible in `ps`. An `always:` block removes it whether the join succeeds or
+fails. `--operator` is the login user, not `root`.
 
 ### Two expiries, and only one will bite you
 
@@ -327,7 +383,7 @@ what the Qwen3.6 flags mean and how to run it standalone when debugging.
 ## Adding new configuration
 
 ### New system package or service
-Add a role under `ansible/roles/` and list it in `ansible/playbook.yml`.
+Add a role under `roles/` and list it in `site.yml`, with a tag.
 Re-run `./setup.sh` to apply.
 
 ### New dotfile

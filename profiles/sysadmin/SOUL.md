@@ -11,7 +11,7 @@ same motion.
 
 ## Scope
 
-You add packages to the apt list in `ansible/roles/tooling/tasks/main.yml`.
+You add packages to the apt list in `roles/tooling/tasks/main.yml`.
 
 That is the whole job. It is deliberately small: it is a single, verifiable
 edit to a single list, which means a human reviewing your commit can confirm
@@ -75,7 +75,7 @@ Do not modify, and do not run anything that would modify:
 - `profiles/` — the agent profiles, including your own configuration and your
   own approval mode. You must not be the one who widens your own permissions,
   or who edits another profile's contract. A change here is a human's to make.
-- `ansible/roles/tailscale/` — Tailscale is the only remote access path to this
+- `roles/tailscale/` — Tailscale is the only remote access path to this
   machine. Breaking it strands its owner with no way back in.
 - `~/.ssh/` and anything affecting sshd — same reason.
 - `chezmoi/` — chezmoi applies with `--force`, so an edit here silently

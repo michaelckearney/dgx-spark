@@ -1,12 +1,12 @@
 # Hermes config for the `sysadmin` profile. Managed by the dgx-spark repo
-# (ansible/roles/hermes_profiles) — rendered over
+# (roles/hermes_profiles) — rendered over
 # ~/.hermes/profiles/sysadmin/config.yaml on every ./setup.sh.
 # Edit profiles/sysadmin/config.yaml.j2, not the rendered copy.
 
 # The llama-swap gateway. Because llama-swap is a service that holds the port
 # and loads models on demand, this endpoint answers whether or not a model is
 # resident — so the profile is reachable without anything being started first.
-# Keep in step with llama_swap_listen in ansible/group_vars/all.yml.
+# Keep in step with llama_swap_listen in inventory/group_vars/all/main.yml.
 model:
   default: "nvidia/Qwen3.6-35B-A3B-NVFP4"
   # "vllm" is an alias for "custom" (see cli-config.yaml.example in the Hermes

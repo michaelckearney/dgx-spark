@@ -1,0 +1,3 @@
+---
+# chezmoi source directory, relative to the playbook at the repo root.
+chezmoi_source: "{{ playbook_dir }}/chezmoi"

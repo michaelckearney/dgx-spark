@@ -14,7 +14,7 @@ A profile is a fully independent `HERMES_HOME` — its own `config.yaml`,
 is `~/.hermes` itself; named ones live under `~/.hermes/profiles/<name>/`.
 
 On this machine they are materialised from `profiles/<name>/` in the dgx-spark
-repo by `ansible/roles/hermes_profiles`.
+repo by `roles/hermes_profiles`.
 
 ## Profiles are pure filesystem
 
@@ -70,7 +70,7 @@ never clobbering a real credential written later.
 ## Adding a profile
 
 1. Create `profiles/<name>/` with `SOUL.md`, `config.yaml.j2`, and `skills/`.
-2. Add an entry to `hermes_profiles` in `ansible/group_vars/all.yml`.
+2. Add an entry to `hermes_profiles` in `inventory/group_vars/all/main.yml`.
 3. Converge.
 
 The role needs no change — it loops over that list.

@@ -21,9 +21,9 @@ Every model this agent talks to arrives through it.
 |---|---|
 | Catalogue source (edit this) | `workloads/llama-swap/config.yaml` |
 | Deployed catalogue | `/etc/llama-swap/config.yaml` |
-| Service unit template | `ansible/roles/llama_swap/templates/llama-swap.service.j2` |
-| Role | `ansible/roles/llama_swap/` |
-| Version + checksum + listen address | `ansible/group_vars/all.yml` |
+| Service unit template | `roles/llama_swap/templates/llama-swap.service.j2` |
+| Role | `roles/llama_swap/` |
+| Version + checksum + listen address | `inventory/group_vars/all/main.yml` |
 
 The role copies the catalogue to `/etc` and reloads the service. It is not
 watched and not polled — `--watch-config` exists upstream and is deliberately

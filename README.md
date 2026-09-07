@@ -12,25 +12,43 @@ machine up, in a form I can actually re-run if I ever start over.
 ```bash
 git clone https://github.com/michaelckearney/dgx-spark.git
 cd dgx-spark
-./setup.sh --check   # see what would change
-./setup.sh           # install and configure everything
-./configure.sh       # supply the secrets a public repo can't contain
+./setup.sh
 ```
 
-Re-run either any time. `setup.sh` is idempotent and never prompts;
-`configure.sh` only asks for what is still missing.
+That is the whole thing. One command, first run and every run after.
 
-The opinions here are mine (zsh, Powerlevel10k, Ollama), but nothing is tied
-to my identity. Set your own for commit authorship — either edit
-`git_user_name` / `git_user_email` in `ansible/group_vars/all.yml`, or pass
-them per run:
+It installs Ansible if you don't have it, configures the machine, and — if
+anything still needs a value from you, like a GitHub token — asks for it right
+there. Press Enter at any prompt to skip it; you won't be asked again, and
+nothing else breaks.
+
+Re-run it any time. Every step is idempotent, and it only asks about things it
+has never asked about before.
+
+```bash
+./setup.sh --check   # dry run: shows what would change, changes nothing
+```
+
+Anything else you pass goes straight through to `ansible-playbook`, which is
+what makes this work:
 
 ```bash
 ./setup.sh --extra-vars "git_user_name='Ada Lovelace' git_user_email=ada@example.com"
 ```
 
-Left alone they default to this machine's `user@hostname`, so the repo works
-as-is for anyone without inheriting someone else's identity.
+Left alone, the git identity defaults to this machine's `user@hostname`, so the
+repo works as-is for anyone without inheriting someone else's.
+
+### When nobody is at the keyboard
+
+`./setup.sh` is also what an agent or a cron job runs. With no terminal
+attached it asks nothing at all: it applies every secret already stored, skips
+the rest, prints what is still missing, and exits 0. A missing secret makes the
+result smaller — it never blocks the run.
+
+That is why there is no separate configure step. There used to be one, and it
+existed only to keep prompts away from unattended runs; detecting the terminal
+does the same job without making you learn a second command.
 
 ## SSH access from your laptop
 
@@ -90,7 +108,7 @@ presents as a rejected key rather than a permissions problem. `chmod 700 ~/.ssh`
 - **CLI tooling** — `vim`, `zsh`, `git`, `ripgrep`, `gh`
 - **Shell** — zsh as login shell, Oh My Zsh, Powerlevel10k
 - **Dotfiles** — `~/.bashrc`, `~/.zshrc`, `~/.p10k.zsh`, applied via chezmoi
-- **Tailscale** — installed and running, joined via `configure.sh`. Gives the
+- **Tailscale** — installed and running, joined once you supply a credential. Gives the
   machine a private `100.x` address reachable from my own devices anywhere.
   SSH is unchanged — same OpenSSH, same keys; Tailscale only supplies the route.
   Tailscale SSH (`--ssh`) is deliberately *not* enabled, since it would
@@ -217,63 +235,96 @@ directly, without a passthrough layer in between.
 ## Repository structure
 
 ```
-├── setup.sh                             # Install/converge. Never prompts.
-├── configure.sh                         # Supply secrets. Prompts, no sudo.
-├── ansible/
-│   ├── playbook.yml
-│   ├── group_vars/all.yml
-│   └── roles/
-│       ├── docker/                      # docker group membership only
-│       ├── sudo/                        # passwordless sudo + I/O logging
-│       ├── tooling/                     # vim, zsh, git, ripgrep, gh,
-│       │                                #   oh-my-zsh, p10k
-│       ├── ollama/                      # native Ollama install + service
-│       ├── llama_swap/                  # model gateway install + service
-│       ├── chezmoi/                     # chezmoi install + apply
-│       ├── hermes/                      # Hermes CLI install (unconfigured)
-│       └── hermes_profiles/             # agent profiles, from files
-├── chezmoi/
-│   ├── dot_bashrc
-│   ├── dot_zshrc
-│   ├── dot_p10k.zsh
-│   └── dot_gitconfig.tmpl               # templated git identity + gh helper
-├── profiles/                            # agent profiles — SOUL.md + config,
-│   ├── sysadmin/                        #   copied to ~/.hermes/profiles/;
-│   │   └── skills/                      #   skills/ referenced in place via
-│   └── harbor/                          #   skills.external_dirs
-│       └── skills/
-├── workloads/
-│   ├── llama-swap/                      # model catalogue — copied to /etc
-│   └── vllm/                            # Qwen3.6-35B-A3B NVFP4: flags + why
+├── setup.sh                     # the only command
+├── ansible.cfg                  # so `ansible-playbook site.yml` just works
+├── site.yml                     # the play
+├── inventory/
+│   ├── hosts.yml                # one host, local connection
+│   └── group_vars/all/main.yml  # site-specific values only
+├── roles/
+│   ├── docker/                  # docker group membership only
+│   ├── sudo/                    # passwordless sudo + I/O logging
+│   ├── tooling/                 # vim, zsh, git, ripgrep, gh, oh-my-zsh, p10k
+│   ├── tailscale/               # client install; joining is the secrets role
+│   ├── ollama/                  # native Ollama install + service
+│   ├── llama_swap/              # model gateway install + service
+│   ├── chezmoi/                 # chezmoi install + apply
+│   ├── hermes/                  # Hermes CLI install (unconfigured)
+│   ├── hermes_profiles/         # agent profiles, from files
+│   └── secrets/                 # prompts, stores, and applies credentials
+├── chezmoi/                     # dotfile sources
+├── profiles/                    # Hermes agent profiles: SOUL.md, config, skills
+├── workloads/                   # manual only — nothing auto-runs
 └── docs/setup.md
 ```
 
+Every role keeps its own knobs in `defaults/main.yml`. `group_vars` holds only
+the handful of values that differ between one person's machine and another's.
+
+The play does **not** run as root. Tasks that need root ask for it themselves,
+which is why nothing has to be told who the login user is.
+
 ## Secrets
 
-`setup.sh` installs everything but supplies no credentials. `configure.sh`
-collects them:
+There is no separate command. `./setup.sh` asks for anything it has never asked
+about, when there is someone to ask.
 
-```bash
-./configure.sh              # anything still missing
-./configure.sh telegram     # rotate just one
-./configure.sh --list       # what's configured — never values
-```
+Each secret has three states, not two:
 
-**This repo stores no secrets.** Each is written straight through to the tool
-that owns it — `gh`'s token store, and Hermes' `~/.hermes/.env` (mode `0600`).
-There is no second copy to drift out of sync and no additional store to secure.
-"Is it configured?" is answered by asking the real consumer.
+| State | What happens next |
+|---|---|
+| **stored** | applied on every run |
+| **declined** | remembered — you are not asked again |
+| **never asked** | you are asked, if a human is present |
 
-| Secret | Goes to | For |
+Declining is a real answer. Press Enter and the marker in
+`/etc/dgx-spark/declined` stops the nagging; delete that file to be asked
+again.
+
+### Where they live
+
+`/etc/dgx-spark/credstore` — one root-owned file per secret, mode `0600`, in a
+`0700` directory. **Deliberately not encrypted:** the same values end up in
+plaintext in gh's token store and `~/.hermes/.env` on this same disk, so
+encrypting the source while its copies sit unencrypted two directories away
+would be ceremony, not security. If the disk needs protecting, that is a
+full-disk encryption question.
+
+The store is not in this repo and never should be. Back it up separately — a
+git clone plus a restored credstore is what lets `./setup.sh` rebuild this
+machine with nobody retyping anything. That recoverability is the whole reason
+it exists.
+
+### How each one converges
+
+The rule is not the same for all three, and the difference is the interesting
+part:
+
+| Secret | Goes to | Rule |
 |---|---|---|
-| `github` | gh's token store | pushing over HTTPS |
-| `telegram` | `~/.hermes/.env` + gateway service | Hermes messaging |
-| `tailscale` | the tailnet join itself | remote SSH from anywhere |
+| `github` | gh's token store | `gh auth token` hands it back, so: plain diff |
+| `telegram` | `~/.hermes/.env` + gateway | `lineinfile` diffs it; the gateway restarts **only** on a real change |
+| `tailscale` | the tailnet join | Nothing hands it back and nothing needs it twice — a joined machine is left alone |
 
-The GitHub token needs `repo` scope (classic) or Contents: read and write
-(fine-grained). Note that a PAT, unlike `gh auth login`'s browser flow, does not
-refresh itself — when it expires pushes start failing, and
-`./configure.sh github` replaces it.
+That last row is load-bearing. Tailscale is the only way to reach this machine
+remotely, so a converge must never re-authenticate a working node against a
+credential that has since expired or been revoked. The join is gated on *not
+already being on the tailnet*; the stored value is for the next rebuild.
+
+The Telegram rule matters for a smaller reason that still bites: without the
+handler gate, adding an apt package would restart the gateway and drop a live
+conversation.
+
+### Notes
+
+The GitHub token needs `repo` and `read:org` (classic). Unlike `gh auth login`'s
+browser flow a PAT does not refresh itself — when it expires pushes start
+failing, and running `./setup.sh` after deleting the stored file replaces it.
+
+For Tailscale, prefer an **OAuth client secret** over a one-off auth key. Auth
+keys expire at 90 days maximum and one-off keys work exactly once, so a stored
+auth key rots in place — silently, to be discovered on the day you rebuild. Set
+`tailscale_tags` to match the tag the client is scoped to.
 
 ## Design principles
 

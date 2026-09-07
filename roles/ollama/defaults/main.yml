@@ -1,0 +1,4 @@
+---
+# Where Ollama stores model weights. This is Ollama's own default, pinned
+# explicitly via a systemd drop-in so the location is never a surprise.
+ollama_models_dir: /usr/share/ollama/.ollama/models

@@ -1,0 +1,20 @@
+---
+# Site-specific values — the things one person's machine differs from
+# another's. Everything else lives in the defaults/ of the role that owns it,
+# which is where you should look first when you want to change behaviour.
+
+# Git identity written into ~/.gitconfig by chezmoi.
+#
+# These default to the machine's own user@host so the repo runs as-is for
+# anyone, with an obviously-placeholder identity rather than someone else's.
+# Set them to your own — either edit here, or override per run:
+#
+#   ./setup.sh --extra-vars "git_user_name='Ada Lovelace' git_user_email=ada@example.com"
+git_user_name: "{{ ansible_user_id }}"
+git_user_email: "{{ ansible_user_id }}@{{ ansible_facts['hostname'] }}"
+
+# Tags advertised at `tailscale up`. A Tailscale OAuth client secret REQUIRES
+# a tag and is rejected without one; a plain auth key does not. Must match a
+# tag the OAuth client is scoped to, and the tag must exist in your tailnet
+# ACL. Empty omits the flag entirely.
+tailscale_tags: ""
