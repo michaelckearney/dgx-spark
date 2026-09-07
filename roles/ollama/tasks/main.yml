@@ -56,7 +56,7 @@
           # explicit rather than relying on Ollama's built-in default.
           [Service]
           Environment="OLLAMA_MODELS={{ ollama_models_dir }}"
-      notify: restart ollama
+      notify: Restart ollama
     - name: Enable and start the Ollama service
       become: true
       ansible.builtin.systemd:

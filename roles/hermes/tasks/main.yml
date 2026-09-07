@@ -80,7 +80,7 @@
     # is the secrets role's handler, not this.
     - name: Install the Hermes gateway service
       ansible.builtin.command: hermes gateway install --start-now --start-on-login
-      register: gateway_install
-      changed_when: "'already installed' not in (gateway_install.stdout | lower)"
+      register: hermes_gateway_install
+      changed_when: "'already installed' not in (hermes_gateway_install.stdout | lower)"
       environment:
         PATH: "{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"

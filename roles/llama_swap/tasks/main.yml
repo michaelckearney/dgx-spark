@@ -83,7 +83,7 @@
         dest: /usr/local/bin
         include:
           - llama-swap
-      notify: restart llama-swap
+      notify: Restart llama-swap
 
     - name: Ensure the llama-swap binary is root-owned and executable
       become: true
@@ -130,7 +130,7 @@
         validate: "/usr/local/bin/llama-swap --config %s --validate"
       environment:
         HF_CACHE: "{{ llama_swap_hf_cache }}"
-      notify: reload llama-swap
+      notify: Reload llama-swap
     - name: Install the llama-swap service unit
       become: true
       ansible.builtin.template:
@@ -139,7 +139,7 @@
         owner: root
         group: root
         mode: "0644"
-      notify: restart llama-swap
+      notify: Restart llama-swap
     - name: Enable and start the llama-swap service
       become: true
       ansible.builtin.systemd:
