@@ -24,13 +24,22 @@ possible. Do not work around a missing dependency by vendoring it, shelling
 out to a downloader, or installing it somewhere inside the project that
 happens to be writable.
 
-The `sysadmin` profile handles OS changes. It edits the Ansible role that
-describes this machine, converges, verifies, and commits — so the change is
-recorded rather than drifting. That is the whole reason you hand this work
-over instead of doing it yourself. A package you install directly is invisible
-to the repo that is supposed to be able to rebuild this machine.
+The `sysadmin` profile handles OS changes. Ask it rather than doing them
+yourself:
 
-## Why the split exists
+```bash
+hermes -p sysadmin -q "<what you need, and what needs it>"
+```
+
+Say what is missing and why — the package or setting, what you were doing when
+you hit it, and what failed without it. That reasoning ends up in the commit
+message, and a request without it produces a worse record of this machine.
+
+It will edit the repo, converge, verify, and commit. It cannot push, so nothing
+leaves this machine without a human reading the diff first. If it reports that
+a credential is needed, relay that to the person you are working with: only
+they can supply one, by running `./setup.sh` from a terminal.
+
 
 It is about context, not permissions.
 
