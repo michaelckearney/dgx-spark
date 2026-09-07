@@ -6,32 +6,52 @@
 #   ./configure.sh --list       show what is configured — never values
 #   ./configure.sh --help
 #
-# This script stores nothing. Each secret is written straight through to the
-# tool that owns it — gh's own token store, and Hermes' ~/.hermes/.env (0600).
-# That means no secret lives in two places, there is no copy to drift out of
-# sync, and there is no third store for this repo to secure. "Is it configured?"
-# is answered by asking the real consumer, not by reading a manifest of our own.
+# This script ACQUIRES secrets. It does not apply them.
 #
-# Safe to re-run. Needs no sudo except for `tailscale`, which cannot join a
-# tailnet without root; with this repo's passwordless sudo that is silent.
+# Each secret is written to the credential store at /etc/dgx-spark/credstore,
+# and ./setup.sh is what distributes it to the tool that consumes it. That
+# split is the whole point: this script is the only thing in the repo that
+# prompts a human, and setup.sh is the only thing that changes the machine.
+#
+# Why a store at all, when an earlier version of this script wrote each secret
+# straight through to its consumer: secrets were the one part of this repo that
+# could not be re-converged. Lose gh's token store or ~/.hermes/.env — a
+# reimage, a stray rm — and the only recovery was a human retyping. Everything
+# else in this repo rebuilds from a git clone and one command. Now secrets do
+# too.
+#
+# The store is plain root-owned files, mode 0600, in a 0700 directory. There is
+# deliberately no encryption: the same secrets end up in plaintext in gh's token
+# store and ~/.hermes/.env on this same disk, so encrypting the source while its
+# copies sit unencrypted two directories away would be ceremony rather than
+# security. If the disk itself needs protecting, that is a full-disk encryption
+# question, not one this file can answer.
+#
+# Reads live in ansible/roles/secrets. If the storage ever needs to change —
+# age, systemd-creds, a hardware token — vault_write below and that role's
+# slurp tasks are the only two places that know how a secret is stored.
+#
+# Needs sudo to write to /etc. With this repo's passwordless sudo that is
+# silent.
 set -euo pipefail
 
 # The Hermes command lives here; a non-login shell won't have it on PATH.
 export PATH="$HOME/.local/bin:$PATH"
+
+VAULT_DIR="/etc/dgx-spark/credstore"
 
 SECRETS=(github telegram tailscale)
 
 # Hermes' own validation regex, from hermes_cli/setup.py. A token that fails
 # this is accepted by the .env writer and then silently disables the Telegram
 # adapter at gateway start — an error in the log and nothing else.
+#
+# Format checks matter more now than they did when this script applied secrets
+# itself. It used to store a token and immediately prove it worked; acquisition
+# and application are separate steps now, so a malformed value would sit in the
+# store looking configured until the next converge failed. These catch the
+# common typo at the point where a human can still fix it.
 TELEGRAM_TOKEN_RE='^[0-9]+:[A-Za-z0-9_-]{30,}$'
-
-# Holds the Tailscale auth-key temp file while it exists. The trap covers every
-# exit path — normal return, an error, or a Ctrl-C partway through
-# `tailscale up` — so a plaintext key is never left behind on disk.
-TS_KEYFILE=""
-cleanup() { [[ -n "$TS_KEYFILE" ]] && rm -f "$TS_KEYFILE"; return 0; }
-trap cleanup EXIT INT TERM
 
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
@@ -46,67 +66,35 @@ readonly RC_DONE=0
 readonly RC_FAILED=1
 readonly RC_SKIPPED=2
 
-# --- status probes -----------------------------------------------------------
-# Deliberately ask the consuming tool rather than tracking state ourselves.
+# --- the credential store ----------------------------------------------------
+# The only two functions in this repo that know how a secret is stored. The
+# read side lives in ansible/roles/secrets, which slurps these files as root.
 
-hermes_env_path() { hermes config env-path 2>/dev/null; }
+vault_path() { printf '%s/%s' "$VAULT_DIR" "$1"; }
 
-is_configured_github() { gh auth status >/dev/null 2>&1; }
+# Existence only. This script never reads a secret back — nothing here needs
+# the value, and not reading it means no secret is ever in this process's
+# memory longer than the moment between the prompt and the write.
+vault_has() { sudo test -f "$(vault_path "$1")"; }
 
-is_configured_telegram() {
-    local env_path
-    env_path="$(hermes_env_path)" || return 1
-    [[ -n "$env_path" && -f "$env_path" ]] || return 1
-    # Accept both `KEY=` and `export KEY=` forms, and require a non-empty value.
-    grep -qE '^(export[[:space:]]+)?TELEGRAM_BOT_TOKEN=.' "$env_path"
+# `umask 077; cat >` inside the sudo'd shell rather than `tee` then `chmod`, so
+# the file is never briefly world-readable. The value arrives on stdin, so it
+# is never in argv, which is world-readable via ps for the life of the process.
+vault_write() {
+    local name="$1" path
+    path="$(vault_path "$name")"
+    sudo install -d -m 0700 -o root -g root "$VAULT_DIR" || return 1
+    sudo sh -c 'umask 077; cat > "$1"' _ "$path" || return 1
+    sudo chown root:root "$path"
 }
 
-# `tailscale status` exits non-zero when logged out, so it doubles as the
-# joined-or-not probe without needing jq to read the JSON backend state.
-is_configured_tailscale() { tailscale status >/dev/null 2>&1; }
-
-is_configured() { "is_configured_$1"; }
+is_configured() { vault_has "$1"; }
 
 missing_secrets() {
     local s
     for s in "${SECRETS[@]}"; do
         is_configured "$s" || printf '%s\n' "$s"
     done
-}
-
-# --- .env editing ------------------------------------------------------------
-# Replace a key in Hermes' .env in place, preserving mode 0600 and every other
-# key. The temp file is created in the same directory so `mv` is an atomic
-# rename rather than a copy. An empty value removes the key entirely, so
-# clearing an allowlist actually clears it.
-set_env_key() {
-    local key="$1" value="$2" env_path tmp
-    env_path="$(hermes_env_path)"
-    if [[ -z "$env_path" ]]; then
-        err "could not determine Hermes .env path"
-        return 1
-    fi
-    if [[ ! -f "$env_path" ]]; then
-        : > "$env_path"
-        chmod 600 "$env_path"
-    fi
-    # Checked step by step: callers test this function's return value, which
-    # disables errexit inside it. A half-written .env would be worse than a
-    # clean failure, so bail (removing the temp file) on any problem.
-    tmp="$(mktemp "${env_path}.XXXXXX")" || return 1
-    chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
-    # grep exits 1 when it matches nothing, which is normal for a first write.
-    grep -vE "^(export[[:space:]]+)?${key}=" "$env_path" > "$tmp" || true
-    if [[ -n "$value" ]]; then
-        printf '%s=%s\n' "$key" "$value" >> "$tmp" || { rm -f "$tmp"; return 1; }
-    fi
-    mv "$tmp" "$env_path" || { rm -f "$tmp"; return 1; }
-}
-
-require_cmd() {
-    command -v "$1" >/dev/null 2>&1 && return 0
-    err "$1 is not installed — run ./setup.sh first"
-    return 1
 }
 
 require_tty() {
@@ -121,7 +109,6 @@ require_tty() {
 # --- github ------------------------------------------------------------------
 
 configure_github() {
-    require_cmd gh || return 1
     cat <<'EOF'
 
   GitHub personal access token
@@ -133,7 +120,7 @@ configure_github() {
       read:org    required by `gh auth login` itself; it refuses without it
 
   Fine-grained tokens don't advertise scopes the way gh checks for them, so
-  they are likely to be rejected here. Classic is the reliable choice.
+  they are likely to be rejected. Classic is the reliable choice.
 
   Note: unlike `gh auth login`'s browser flow, a PAT does not refresh itself.
   When it expires, pushes start failing — re-run `./configure.sh github`.
@@ -147,30 +134,23 @@ EOF
         skip "GitHub skipped — pushing over HTTPS won't work until it's set"
         return "$RC_SKIPPED"
     fi
+
     # `set -e` is NOT in effect inside this function: main invokes it as
     # `configure_x || rc=$?`, and testing a function's return value disables
     # errexit throughout its body. Every fallible command must therefore be
     # checked explicitly, or a failure sails on to the success message.
-    local rc=0
-    printf '%s' "$token" | gh auth login --with-token || rc=$?
-    unset token
-
-    # Trust the outcome, not the exit status: re-run the same probe that
-    # `--list` uses, so "configured" always means the consumer agrees.
-    if (( rc != 0 )) || ! is_configured_github; then
-        err "GitHub authentication failed — nothing was stored."
-        err "A classic token needs BOTH 'repo' and 'read:org' scopes."
-        err "Check the scopes at https://github.com/settings/tokens and retry:"
-        err "    ./configure.sh github"
+    if ! printf '%s' "$token" | vault_write github; then
+        unset token
+        err "Could not write to the credential store."
         return "$RC_FAILED"
     fi
-    ok "GitHub authenticated (credential helper already wired by chezmoi)"
+    unset token
+    ok "GitHub token stored"
 }
 
 # --- telegram ----------------------------------------------------------------
 
 configure_telegram() {
-    require_cmd hermes || return 1
     cat <<'EOF'
 
   Hermes Telegram gateway
@@ -202,142 +182,105 @@ EOF
     read -rp "  Allowed user IDs (comma-separated, blank for DM pairing): " ids
     ids="${ids//[[:space:]]/}"
 
-    # As in configure_github: errexit is disabled inside this function, so
-    # every fallible step is checked by hand.
-    # Token via `hermes config set` — a key ending in _TOKEN is routed to .env.
-    local rc=0
-    hermes config set TELEGRAM_BOT_TOKEN "$token" >/dev/null || rc=$?
+    if ! printf '%s' "$token" | vault_write telegram; then
+        unset token
+        err "Could not write to the credential store."
+        return "$RC_FAILED"
+    fi
     unset token
-    if (( rc != 0 )) || ! is_configured_telegram; then
-        err "Storing the bot token failed — nothing was written."
-        err "Retry with: ./configure.sh telegram"
+
+    # Stored beside the token rather than in group_vars: it is a list of real
+    # people's account IDs, which is not a secret but is not something to
+    # commit either. Written even when blank, so clearing the allowlist
+    # actually clears it on the next converge.
+    if ! printf '%s' "$ids" | vault_write telegram_allowed_users; then
+        err "Token stored, but the allowlist could not be written."
         return "$RC_FAILED"
     fi
 
-    # The allowlist must NOT go through `hermes config set TELEGRAM_ALLOWED_USERS`:
-    # that key has no dot, isn't in the API-key list, and doesn't end in _TOKEN or
-    # _SECRET, so it lands in config.yaml as a top-level key that nothing reads.
-    # Writing .env directly is the canonical route — env wins over YAML in every
-    # bridge, and it keeps the token and its allowlist in one file.
-    if ! set_env_key TELEGRAM_ALLOWED_USERS "$ids"; then
-        err "Could not write the allowlist to Hermes' .env."
-        err "The bot token IS stored; fix the file and retry."
-        return "$RC_FAILED"
-    fi
-
+    ok "Telegram token stored"
     if [[ -n "$ids" ]]; then
-        ok "Allowlist set (${ids})"
+        ok "Allowlist stored (${ids})"
     else
         ok "No allowlist — new senders go through DM pairing"
     fi
-
-    say ""
-    say "  Installing / refreshing the gateway service..."
-    if ! hermes gateway install --start-now --start-on-login; then
-        err "Gateway install failed."
-        err "Your token and allowlist ARE saved — don't re-enter them. Retry with:"
-        err "    hermes gateway install --start-now --start-on-login"
-        return "$RC_FAILED"
-    fi
-
-    # `gateway install` is a no-op when the unit already exists: it prints
-    # "Service already installed ... Use --force to reinstall" and returns
-    # WITHOUT restarting. The gateway only reads ~/.hermes/.env at startup, so
-    # on a rotation the running process would keep serving the old token while
-    # the file held the new one. Restart unconditionally — harmless on a fresh
-    # install, and the only thing that makes rotation actually take effect.
-    if ! hermes gateway restart; then
-        warn "Gateway did not restart. The new token is saved but the running"
-        warn "process may still be using the previous one. Fix with:"
-        warn "    hermes gateway restart"
-    fi
-    ok "Telegram gateway installed and running"
 }
 
 # --- tailscale ---------------------------------------------------------------
 
 configure_tailscale() {
-    require_cmd tailscale || return 1
     cat <<'EOF'
 
   Tailscale — reach this machine from anywhere
   ────────────────────────────────────────────
-  Generate a one-off auth key at:
+  Prefer an OAUTH CLIENT SECRET over a one-off auth key:
+      https://login.tailscale.com/admin/settings/oauth
+
+  Auth keys expire (90 days maximum) and one-off keys work exactly once, so a
+  stored auth key is a credential that rots in place — and it rots silently,
+  to be discovered on the day you rebuild this machine and need it. An OAuth
+  client secret does not expire and mints keys on demand.
+
+  An OAuth client needs the `auth_keys` scope and a tag, and this machine must
+  advertise that tag. Set tailscale_tags in ansible/group_vars/all.yml to match
+  the tag on the client.
+
+  A one-off auth key still works if you want to get moving:
       https://login.tailscale.com/admin/settings/keys
 
-  This only puts the machine on your private tailnet. SSH is unchanged —
-  same OpenSSH, same keys. Tailscale SSH is deliberately not enabled.
+  This only puts the machine on your private tailnet. SSH is unchanged — same
+  OpenSSH, same keys. Tailscale SSH is deliberately not enabled.
 
-  Your laptop needs the Tailscale client too, signed in to the same
-  account, or there's no tailnet to reach this machine over.
+  Your laptop needs the Tailscale client too, signed in to the same account,
+  or there's no tailnet to reach this machine over.
 
   Press Enter on its own to skip.
 
 EOF
     local key
-    read -rsp "  Tailscale auth key (Enter to skip): " key; echo
+    read -rsp "  Tailscale OAuth client secret or auth key (Enter to skip): " key; echo
     if [[ -z "$key" ]]; then
         skip "Tailscale skipped — the machine won't join your tailnet"
         return "$RC_SKIPPED"
     fi
+    # Both forms share the prefix; an OAuth client secret is tskey-client-...
     if [[ "$key" != tskey-* ]]; then
-        err "That doesn't look like a Tailscale auth key (expected tskey-...)."
+        err "That doesn't look like a Tailscale credential (expected tskey-...)."
         return "$RC_FAILED"
     fi
 
-    # Pass the key by file reference rather than on the command line: argv is
-    # world-readable via ps for as long as the process runs. TS_KEYFILE is
-    # cleaned up by the script-level EXIT/INT/TERM trap, so the key survives
-    # neither a failure nor a Ctrl-C partway through `tailscale up`.
-    TS_KEYFILE="$(umask 077 && mktemp)" || {
-        err "could not create temp file for the auth key"
+    if ! printf '%s' "$key" | vault_write tailscale; then
+        unset key
+        err "Could not write to the credential store."
         return "$RC_FAILED"
-    }
-    printf '%s' "$key" > "$TS_KEYFILE"
+    fi
     unset key
+    ok "Tailscale credential stored"
 
-    # `tailscale up` needs root. --operator hands ongoing control to this user
-    # so later `tailscale status` / `ip` work without sudo.
-    say "  Joining the tailnet..."
-    local rc=0
-    sudo tailscale up \
-        --auth-key="file:${TS_KEYFILE}" \
-        --operator="$(id -un)" || rc=$?
-    cleanup; TS_KEYFILE=""
-
-    # errexit is off inside this function (main calls it as `configure_x ||
-    # rc=$?`), and success must mean the daemon agrees — not merely that the
-    # command didn't visibly fail.
-    if (( rc != 0 )) || ! is_configured_tailscale; then
-        err "Joining the tailnet failed."
-        err "Auth keys expire (90 days max) and one-off keys work only once —"
-        err "generate a fresh one and retry: ./configure.sh tailscale"
-        return "$RC_FAILED"
+    # Worth saying out loud, because it is the one secret whose consumer this
+    # repo will not re-apply to a machine that is already working. See the
+    # tailscale role: a joined node takes the skip path every time.
+    if tailscale status >/dev/null 2>&1; then
+        say ""
+        say "  This machine is already on the tailnet, so ./setup.sh will not"
+        say "  re-join it. The stored credential is for the next rebuild."
     fi
-
-    local ts_ip
-    ts_ip="$(tailscale ip -4 2>/dev/null | head -1)"
-    ok "Joined the tailnet${ts_ip:+ as ${ts_ip}}"
-    say ""
-    warn "Node keys expire after 180 days by default. When that happens this"
-    warn "machine silently drops off the tailnet. Turn off key expiry for it at"
-    warn "https://login.tailscale.com/admin/machines — worth doing now."
 }
 
-# --- output ------------------------------------------------------------------
+# --- reporting ---------------------------------------------------------------
 
 print_status() {
     local s
     say "Secrets:"
     for s in "${SECRETS[@]}"; do
         if is_configured "$s"; then
-            printf '  \033[32m✓\033[0m %-10s configured\n' "$s"
+            printf '  \033[32m✓\033[0m %-10s stored\n' "$s"
         else
-            printf '  \033[33m○\033[0m %-10s not configured\n' "$s"
+            printf '  \033[33m○\033[0m %-10s not stored\n' "$s"
         fi
     done
     say ""
-    say "Nothing is stored by this repo — each secret lives in the tool that uses it."
+    say "Stored in ${VAULT_DIR}. Run ./setup.sh to apply them."
 }
 
 # Quiet form used by setup.sh: prints only when something needs attention.
@@ -350,7 +293,7 @@ print_hint() {
     missing="${missing//,/, }"
     say ""
     say "==> Not yet configured: ${missing}"
-    say "==> Run ./configure.sh to set up."
+    say "==> Run ./configure.sh to set up, then ./setup.sh to apply."
 }
 
 usage() {
@@ -360,16 +303,17 @@ configure.sh — supply the secrets this repo cannot contain
 USAGE
   ./configure.sh              configure whatever is still missing
   ./configure.sh NAME...      re-prompt for these specifically (rotation)
-  ./configure.sh --list       show what is configured (never values)
+  ./configure.sh --list       show what is stored (never values)
   ./configure.sh --help
 
 SECRETS
-  github      GitHub PAT  -> gh's token store, for pushing over HTTPS
-  telegram    Bot token   -> ~/.hermes/.env, plus the gateway service
-  tailscale   Auth key    -> joins this machine to your tailnet (needs sudo)
+  github      GitHub PAT              -> gh's token store, for pushing over HTTPS
+  telegram    Bot token + allowlist   -> ~/.hermes/.env, plus the gateway service
+  tailscale   OAuth secret / auth key -> joins this machine to your tailnet
 
-Nothing is stored by this repo. Each secret is written straight through to the
-tool that owns it, so there is never a second copy to drift or to secure.
+This script only STORES secrets, in /etc/dgx-spark/credstore. `./setup.sh` is
+what applies them to the tools above. Rotating a secret therefore takes two
+commands: store the new one here, then converge.
 EOF
 }
 
@@ -404,7 +348,7 @@ main() {
     fi
 
     if [[ ${#targets[@]} -eq 0 ]]; then
-        say "Everything is configured."
+        say "Everything is stored."
         say ""
         print_status
         exit 0
@@ -434,6 +378,11 @@ main() {
         list="$(printf '%s, ' "${skipped[@]}")"
         say ""
         say "Skipped: ${list%, } — run ./configure.sh ${skipped[0]} when ready."
+    fi
+
+    if (( failed == 0 && ${#skipped[@]} < ${#targets[@]} )); then
+        say ""
+        say "==> Run ./setup.sh to apply."
     fi
     exit "$failed"
 }

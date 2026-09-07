@@ -2,10 +2,16 @@
 # Role: tailscale
 # Installs the Tailscale client and starts tailscaled. Does NOT join a tailnet.
 #
-# Joining requires an auth key, which is a credential and therefore belongs in
-# configure.sh, not here — no key ever reaches Ansible or this repo. A fresh
-# machine ends up with tailscaled running and logged out, the same
-# installed-but-unconfigured resting state the hermes role produces.
+# Joining is the `secrets` role's job, because it needs a credential and this
+# role deliberately knows nothing about credentials. A fresh machine ends up
+# with tailscaled running and logged out — the same installed-but-unconfigured
+# resting state the hermes role produces — and stays that way until a
+# credential is stored and a converge applies it.
+#
+# Nothing here re-runs against a joined node. `state: started` is a no-op on a
+# running daemon, and the join gate lives in the secrets role. That is
+# deliberate: this is the only path that reaches this machine remotely, so a
+# converge must never be able to take it down.
 #
 # Note this DOES add a third-party apt repository. Tailscale is not in Ubuntu's
 # archive on the DGX Spark (`apt-cache policy tailscale` returns nothing), so

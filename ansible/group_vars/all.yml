@@ -59,6 +59,26 @@ llama_swap_config_source: "{{ playbook_dir | dirname }}/workloads/llama-swap/con
 # machine-specific paths already live.
 llama_swap_hf_cache: "{{ target_home }}/.cache/huggingface/hub"
 
+# The credential store — see configure.sh, which is the only thing that writes
+# to it, and ansible/roles/secrets, which is the only thing that reads it.
+#
+# Plain root-owned files, mode 0600, in a 0700 directory. Deliberately not
+# encrypted: the same secrets end up in plaintext in gh's token store and
+# ~/.hermes/.env on this same disk, so encrypting the source while its copies
+# sit unencrypted would be ceremony rather than security. Protecting the disk
+# is a full-disk-encryption question.
+#
+# NOT in this repo, and never should be. Back it up separately — a git clone
+# plus a restored credstore is what makes ./setup.sh able to rebuild this
+# machine without a human retyping anything.
+secrets_vault_dir: "/etc/dgx-spark/credstore"
+
+# Tags advertised at `tailscale up`. An OAuth client secret REQUIRES a tag and
+# will be rejected without one; a plain auth key does not. Must match a tag the
+# OAuth client is scoped to, and the tag must exist in your tailnet ACL.
+# Empty means the flag is omitted entirely.
+tailscale_tags: ""
+
 # Repo-managed Hermes agent profiles.
 #
 # Each profile is materialised from files under profiles/<name>/ — see

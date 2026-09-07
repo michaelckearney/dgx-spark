@@ -118,36 +118,59 @@ mount silently causes a 21.85 GiB re-download.
 
 ## Secrets
 
-`setup.sh` never prompts and supplies no credentials. `configure.sh` collects
-them and is safe to re-run. It needs no sudo except for `tailscale`, which
-cannot join a tailnet without root — silent here given the passwordless sudo
-this repo configures:
+`configure.sh` acquires secrets; `setup.sh` applies them. Neither does the
+other's job, and that split is the point.
 
 ```bash
-./configure.sh              # prompt for anything still missing
-./configure.sh github       # rotate exactly one
-./configure.sh --list       # show what is configured — never values
+./configure.sh              # prompt for anything still missing, and store it
+./setup.sh                  # apply what's stored — never prompts
+./configure.sh github       # rotate exactly one, then converge again
+./configure.sh --list       # show what is stored — never values
 ```
 
-**Nothing is stored by this repo.** Each secret is written straight through to
-the tool that owns it, so no secret exists in two places and there is no extra
-store to protect:
+`configure.sh` needs sudo to write to `/etc` — silent here given the
+passwordless sudo this repo configures. It is safe to re-run.
 
-| Secret | Written to | Used for |
+### The credential store
+
+`/etc/dgx-spark/credstore` holds one file per secret: root-owned, mode `0600`,
+in a `0700` directory. It is **not encrypted**, deliberately. The same values
+end up in plaintext in gh's token store and `~/.hermes/.env` on the same disk,
+so encrypting the source while its copies sit unencrypted would be ceremony
+rather than security. Protecting the disk is a full-disk encryption question,
+not one this repo can answer.
+
+The store is not in this repo and must never be. Back it up separately: a git
+clone plus a restored credstore is what makes `./setup.sh` able to rebuild this
+machine with nobody retyping anything. That recoverability is why the store
+exists — an earlier version wrote each secret straight through to its consumer
+and kept nothing, which meant secrets were the one thing here that could not be
+re-converged.
+
+### How each secret converges
+
+`ansible/roles/secrets` reads the store and applies it. The rule differs per
+secret, because what each consumer will tell you back differs:
+
+| Secret | Written to | Convergence rule |
 |---|---|---|
-| `github` | gh's own token store, via `gh auth login --with-token` | `git push` over HTTPS |
-| `telegram` | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS` in `~/.hermes/.env` (`0600`), then `hermes gateway install` | Hermes messaging |
-| `tailscale` | consumed by `tailscale up` at join time; nothing is kept | remote SSH from anywhere |
+| `github` | gh's token store, via `gh auth login --with-token` | `gh auth token` returns the current value, so it is a plain diff — re-authenticate only when they differ |
+| `telegram` | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_ALLOWED_USERS` in `~/.hermes/.env` (`0600`) | `lineinfile` does the diff; a handler restarts the gateway **only** when a line actually changed |
+| `tailscale` | consumed by `tailscale up` at join | Nothing returns it and nothing needs it twice. Gated on *not already joined* — a machine on the tailnet is left completely alone |
 
-Status is derived by asking the real consumer (`gh auth status`, grepping the
-`.env`), not from a manifest of our own — so it cannot drift.
+The Tailscale rule is the one to understand. It is the only path that reaches
+this machine remotely, so a converge must never re-authenticate a working node
+against a credential that has since expired or been revoked. The stored value
+is for the next rebuild, not for this run.
+
+The Telegram handler gate matters for a smaller reason that still bites:
+without it, adding an apt package would restart the gateway and drop a live
+conversation.
 
 **Everything here is optional and skippable.** Press Enter at any prompt to skip
 that secret; `configure.sh` still exits 0, because not having set something up
-yet is a normal state rather than a failure. Nothing else in the repo depends on
-either credential — `setup.sh` never consults them, Hermes runs fine from the
-terminal without Telegram, and the only consequence of skipping `github` is that
-pushing over HTTPS won't work until you supply it.
+yet is a normal state rather than a failure. The `secrets` role skips whatever
+is absent, so a machine where `configure.sh` has never run converges cleanly.
 
 ### GitHub token
 
@@ -208,12 +231,27 @@ ssh michaelckearney@100.x.y.z
 **Your laptop needs the Tailscale client too**, signed in to the same account —
 it's a mesh, so there's no tailnet to reach the Spark over otherwise.
 
-Ansible installs the client and starts `tailscaled`; joining happens in
-`./configure.sh tailscale` with a one-off auth key from
-<https://login.tailscale.com/admin/settings/keys>. The key is written to a
-mode-`0600` temp file and passed as `--auth-key=file:...` rather than on the
-command line, where it would be visible in `ps`; a trap removes it on every exit
-path including Ctrl-C.
+Ansible installs the client and starts `tailscaled`. Joining is a separate
+step: `./configure.sh tailscale` stores a credential, and the next `./setup.sh`
+applies it — but **only if this machine is not already on the tailnet**. A
+joined node takes the skip path every time, because an unconditional
+`tailscale up` against a working node re-authenticates it, and a credential
+that has since expired or been revoked would turn a routine converge into a
+lockout on the one path that reaches this machine remotely.
+
+Prefer an **OAuth client secret** (<https://login.tailscale.com/admin/settings/oauth>)
+over a one-off auth key. Auth keys expire at 90 days maximum and one-off keys
+work exactly once, so a stored auth key rots in place — and it rots silently,
+to be discovered on the day you rebuild this machine. An OAuth client secret
+does not expire and mints keys on demand. It requires a tag: set
+`tailscale_tags` in `ansible/group_vars/all.yml` to match the tag the client
+is scoped to.
+
+Either way the credential is staged in a mode-`0600` file and passed as
+`--auth-key=file:...` rather than on the command line, where it would be
+visible in `ps`. An `always:` block removes it whether the join succeeds or
+fails. `--operator` is set to the login user — not to `root`, which is what
+`$(id -un)` would have resolved to inside a play that runs with `become`.
 
 ### Two expiries, and only one will bite you
 

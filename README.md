@@ -231,7 +231,8 @@ directly, without a passthrough layer in between.
 │       ├── llama_swap/                  # model gateway install + service
 │       ├── chezmoi/                     # chezmoi install + apply
 │       ├── hermes/                      # Hermes CLI install (unconfigured)
-│       └── hermes_profiles/             # agent profiles, from files
+│       ├── hermes_profiles/             # agent profiles, from files
+│       └── secrets/                    # credstore -> gh, .env, tailnet
 ├── chezmoi/
 │   ├── dot_bashrc
 │   ├── dot_zshrc
@@ -250,30 +251,76 @@ directly, without a passthrough layer in between.
 
 ## Secrets
 
-`setup.sh` installs everything but supplies no credentials. `configure.sh`
-collects them:
+Two commands, and the split between them is the design:
 
 ```bash
-./configure.sh              # anything still missing
-./configure.sh telegram     # rotate just one
-./configure.sh --list       # what's configured — never values
+./configure.sh              # store anything still missing — prompts
+./setup.sh                  # apply what's stored — never prompts
 ```
 
-**This repo stores no secrets.** Each is written straight through to the tool
-that owns it — `gh`'s token store, and Hermes' `~/.hermes/.env` (mode `0600`).
-There is no second copy to drift out of sync and no additional store to secure.
-"Is it configured?" is answered by asking the real consumer.
+`configure.sh` **acquires**. It prompts, writes to the credential store, and
+stops. `setup.sh` **distributes** — it reads the store and converges each tool,
+skipping any secret that isn't there. Rotation is therefore two commands:
+store the new value, then converge.
 
-| Secret | Goes to | For |
+```bash
+./configure.sh telegram     # rotate just one
+./configure.sh --list       # what's stored — never values
+```
+
+### Why there's a store at all
+
+An earlier version wrote each secret straight through to its consumer and kept
+nothing. That was tidier in one way and wrong in another: secrets were the only
+part of this repo that couldn't be re-converged. Lose gh's token store or
+`~/.hermes/.env` — a reimage, a stray `rm` — and the only recovery was a human
+retyping. Everything else here rebuilds from a clone and one command.
+
+`/etc/dgx-spark/credstore` is plain root-owned files, mode `0600`, in a `0700`
+directory. **Deliberately not encrypted.** The same secrets end up in plaintext
+in gh's token store and `~/.hermes/.env` on this same disk, so encrypting the
+source while its copies sit unencrypted two directories away would be ceremony,
+not security. If the disk itself needs protecting, that's a full-disk
+encryption question.
+
+It is not in this repo and never should be. Back it up separately — a git clone
+plus a restored credstore is what lets `./setup.sh` rebuild this machine with
+nobody retyping anything.
+
+### How each one converges
+
+The rule is not the same for all three, and the difference is the interesting
+part:
+
+| Secret | Goes to | Convergence rule |
 |---|---|---|
-| `github` | gh's token store | pushing over HTTPS |
-| `telegram` | `~/.hermes/.env` + gateway service | Hermes messaging |
-| `tailscale` | the tailnet join itself | remote SSH from anywhere |
+| `github` | gh's token store | `gh auth token` hands it back, so: plain diff |
+| `telegram` | `~/.hermes/.env` + gateway | `lineinfile` diffs it; the gateway restarts **only** on a real change |
+| `tailscale` | the tailnet join | Nothing hands it back and nothing needs it twice — a joined machine is left alone |
+
+That last row is load-bearing. Tailscale is the only way to reach this machine
+remotely, so a converge must never be able to re-authenticate a working node
+against a credential that has since expired or been revoked. The join is gated
+on *not already being on the tailnet*; the stored credential exists for the
+next rebuild, not for this run.
+
+The Telegram rule matters for a smaller reason that still bites: without the
+handler gate, adding an apt package would restart the gateway and drop a live
+conversation.
+
+### Notes
 
 The GitHub token needs `repo` scope (classic) or Contents: read and write
-(fine-grained). Note that a PAT, unlike `gh auth login`'s browser flow, does not
-refresh itself — when it expires pushes start failing, and
-`./configure.sh github` replaces it.
+(fine-grained). Unlike `gh auth login`'s browser flow a PAT does not refresh
+itself — when it expires pushes start failing, and `./configure.sh github`
+replaces it.
+
+For Tailscale, prefer an **OAuth client secret** over a one-off auth key. Auth
+keys expire at 90 days maximum and one-off keys work exactly once, so a stored
+auth key rots in place — silently, to be discovered on the day you rebuild.
+An OAuth client secret doesn't expire and mints keys on demand. It requires a
+tag: set `tailscale_tags` in `ansible/group_vars/all.yml` to match the tag the
+client is scoped to.
 
 ## Design principles
 

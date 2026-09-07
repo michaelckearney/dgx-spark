@@ -24,6 +24,11 @@
     # the Hermes home that the installer creates, and the role skips entirely
     # when that home isn't there yet.
     - hermes_profiles
+    # Last of the roles: every consumer it writes to has to exist first — gh
+    # from tooling, ~/.hermes/.env from hermes, tailscaled from tailscale.
+    # It is also the only role that does nothing at all on a machine where
+    # configure.sh has never run, which is the intended resting state.
+    - secrets
 
   post_tasks:
     # Deliberately last. Switching the login shell before Oh My Zsh,
