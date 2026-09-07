@@ -13,10 +13,10 @@ hermes_profiles:
       # Confines the file tools to the project tree. A focus mechanism, not a
       # security boundary — the terminal tool is not bound by it.
       - key: HERMES_WRITE_SAFE_ROOT
-        value: "{{ ansible_env.HOME }}/development/harbor"
+        value: "{{ ansible_facts['env']['HOME'] }}/development/harbor"
 
 hermes_profiles_source: "{{ playbook_dir }}/profiles"
-hermes_profiles_root: "{{ ansible_env.HOME }}/.hermes/profiles"
+hermes_profiles_root: "{{ ansible_facts['env']['HOME'] }}/.hermes/profiles"
 
 # Mirrors _PROFILE_DIRS in hermes_cli/profiles.py — a private constant in
 # Hermes, so this is a coupling to its internals rather than to a published

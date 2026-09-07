@@ -42,7 +42,7 @@
       - --force
       - --no-tty
   environment:
-    HOME: "{{ ansible_env.HOME }}"
+    HOME: "{{ ansible_facts['env']['HOME'] }}"
     # Consumed by chezmoi/dot_gitconfig.tmpl so the git identity isn't
     # hardcoded to one person. See git_user_name / git_user_email in
     # inventory/group_vars/all/main.yml.

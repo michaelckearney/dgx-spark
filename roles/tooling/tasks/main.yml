@@ -25,6 +25,7 @@
       # wizard, which --non-interactive skips. See the hermes role.
       - ripgrep
       - gh
+      - golang
     state: present
     # Nothing else in this repo refreshes the apt index, and DGX OS doesn't
     # do it on its own. Left stale, the index points at package versions the
@@ -40,23 +41,23 @@
 - name: Install Oh My Zsh
   ansible.builtin.git:
     repo: https://github.com/ohmyzsh/ohmyzsh.git
-    dest: "{{ ansible_env.HOME }}/.oh-my-zsh"
+    dest: "{{ ansible_facts['env']['HOME'] }}/.oh-my-zsh"
     version: master
     depth: 1
     update: false
 
 - name: Ensure Oh My Zsh custom themes directory exists
   ansible.builtin.file:
-    path: "{{ ansible_env.HOME }}/.oh-my-zsh/custom/themes"
+    path: "{{ ansible_facts['env']['HOME'] }}/.oh-my-zsh/custom/themes"
     state: directory
-    owner: "{{ ansible_user_id }}"
-    group: "{{ ansible_user_id }}"
+    owner: "{{ ansible_facts['user_id'] }}"
+    group: "{{ ansible_facts['user_id'] }}"
     mode: "0755"
 
 - name: Install Powerlevel10k theme for Oh My Zsh
   ansible.builtin.git:
     repo: https://github.com/romkatv/powerlevel10k.git
-    dest: "{{ ansible_env.HOME }}/.oh-my-zsh/custom/themes/powerlevel10k"
+    dest: "{{ ansible_facts['env']['HOME'] }}/.oh-my-zsh/custom/themes/powerlevel10k"
     version: master
     depth: 1
     update: true

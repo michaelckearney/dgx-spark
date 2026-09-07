@@ -26,9 +26,9 @@
       | bash -s -- --non-interactive
   args:
     executable: /bin/bash
-    creates: "{{ ansible_env.HOME }}/.local/bin/hermes"
+    creates: "{{ ansible_facts['env']['HOME'] }}/.local/bin/hermes"
   environment:
-    HOME: "{{ ansible_env.HOME }}"
+    HOME: "{{ ansible_facts['env']['HOME'] }}"
   register: hermes_install
 
 - name: Note that Hermes still needs manual configuration

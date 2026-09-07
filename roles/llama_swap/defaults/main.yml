@@ -27,4 +27,4 @@ llama_swap_config_source: "{{ playbook_dir }}/workloads/llama-swap/config.yaml"
 # exec'd without a shell) and must not be ${env.HOME} (that is the service
 # account's home, /var/lib/llama-swap — a valid-looking wrong path that would
 # silently re-download 21.85 GiB).
-llama_swap_hf_cache: "{{ ansible_env.HOME }}/.cache/huggingface/hub"
+llama_swap_hf_cache: "{{ ansible_facts['env']['HOME'] }}/.cache/huggingface/hub"

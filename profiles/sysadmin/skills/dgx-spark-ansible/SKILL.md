@@ -101,7 +101,7 @@ tasks that need root carry `become: true` themselves.
 
 So when you add a task, ask what it touches. Anything under `/etc`, `/usr`,
 `/var`, apt, or systemd needs `become: true`. Anything under the user's own
-home needs nothing, and `ansible_user_id` and `ansible_env.HOME` are already
+home needs nothing, and `ansible_facts['user_id']` and `ansible_facts['env']['HOME']` are already
 correct without being passed in.
 
 Do not add `become` at the play level to make one task work. That inversion is

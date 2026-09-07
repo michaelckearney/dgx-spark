@@ -23,7 +23,7 @@
 - name: Grant the login user passwordless sudo
   become: true
   ansible.builtin.copy:
-    dest: "/etc/sudoers.d/50-{{ ansible_user_id }}-nopasswd"
+    dest: "/etc/sudoers.d/50-{{ ansible_facts['user_id'] }}-nopasswd"
     owner: root
     group: root
     mode: "0440"
@@ -31,12 +31,12 @@
     content: |
       # Managed by the dgx-spark repo (roles/sudo).
       # Passwordless sudo so the Hermes agent can act unattended.
-      {{ ansible_user_id }} ALL=(ALL) NOPASSWD: ALL
+      {{ ansible_facts['user_id'] }} ALL=(ALL) NOPASSWD: ALL
 
       # Record privileged sessions so unattended activity stays auditable:
       #   sudoreplay -l        list sessions
       #   sudoreplay <id>      replay one
       # log_output only, not log_input: input logging would capture keystrokes,
       # including passwords typed into programs run under sudo.
-      Defaults:{{ ansible_user_id }} log_output
+      Defaults:{{ ansible_facts['user_id'] }} log_output
       Defaults!/usr/bin/sudoreplay !log_output

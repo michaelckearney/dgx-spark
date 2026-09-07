@@ -10,8 +10,8 @@
 # Set them to your own — either edit here, or override per run:
 #
 #   ./setup.sh --extra-vars "git_user_name='Ada Lovelace' git_user_email=ada@example.com"
-git_user_name: "{{ ansible_user_id }}"
-git_user_email: "{{ ansible_user_id }}@{{ ansible_facts['hostname'] }}"
+git_user_name: "{{ ansible_facts['user_id'] }}"
+git_user_email: "{{ ansible_facts['user_id'] }}@{{ ansible_facts['hostname'] }}"
 
 # Tags advertised at `tailscale up`. A Tailscale OAuth client secret REQUIRES
 # a tag and is rejected without one; a plain auth key does not. Must match a

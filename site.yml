@@ -3,7 +3,7 @@
 #
 # Note what is NOT here: `become: true`. The play runs as the login user, and
 # the individual tasks that need root ask for it themselves. That way
-# `ansible_user_id` and `ansible_env.HOME` are simply correct everywhere, and
+# `ansible_facts['user_id']` and `ansible_facts['env']['HOME']` are simply correct everywhere, and
 # no role has to undo a play-level become or be told who the real user is.
 - name: Configure this DGX Spark
   hosts: all
@@ -47,7 +47,7 @@
     # you logging into a bare, unconfigured zsh.
     - name: Ensure the login shell is zsh
       ansible.builtin.user:
-        name: "{{ ansible_user_id }}"
+        name: "{{ ansible_facts['user_id'] }}"
         shell: /usr/bin/zsh
       become: true
       tags: [tooling]

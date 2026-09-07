@@ -43,7 +43,7 @@
 
 - name: Check whether the Hermes home exists
   ansible.builtin.stat:
-    path: "{{ ansible_env.HOME }}/.hermes"
+    path: "{{ ansible_facts['env']['HOME'] }}/.hermes"
   register: hermes_home
 
 # The hermes role installs with `creates:`, and shell modules don't run in
