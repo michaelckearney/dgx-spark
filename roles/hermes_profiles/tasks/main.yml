@@ -53,11 +53,16 @@
   when: hermes_home.stat.exists
   block:
 
+    # No mode here, deliberately. Hermes keeps its whole profile tree at 0700
+    # and actively manages some of these — cron/ holds executions.db and a live
+    # ticker. Forcing 0755 made this task report changed on every single run
+    # (Hermes put it straight back) and quietly widened permissions on a
+    # directory Hermes had chosen to keep private. These directories are
+    # Hermes' to own; this role only makes sure they exist.
     - name: Ensure each profile's directories exist
       ansible.builtin.file:
         path: "{{ hermes_profiles_root }}/{{ item.0 }}/{{ item.1 }}"
         state: directory
-        mode: "0755"
       loop: >-
         {{ hermes_profiles | map(attribute='name')
            | product(hermes_profile_skeleton_dirs) | list }}

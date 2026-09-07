@@ -31,6 +31,13 @@
 #
 # --no-tty guarantees that any future prompt fails loudly instead of hanging
 # forever waiting on a terminal that isn't there.
+- name: Check whether chezmoi has anything to apply
+  ansible.builtin.command: "chezmoi status --source {{ chezmoi_source }}"
+  register: chezmoi_status
+  changed_when: false
+  failed_when: false
+  check_mode: false          # read-only probe; safe during --check
+
 - name: Initialize chezmoi and apply dotfiles
   ansible.builtin.command:
     argv:
@@ -48,4 +55,10 @@
     # inventory/group_vars/all/main.yml.
     CHEZMOI_GIT_USER_NAME: "{{ git_user_name }}"
     CHEZMOI_GIT_USER_EMAIL: "{{ git_user_email }}"
+  # Gated on chezmoi having something to do, rather than reporting a change
+  # unconditionally. `chezmoi status` prints one line per file that differs and
+  # nothing at all when the target matches the source, so empty output means
+  # this is a no-op. A non-zero rc means chezmoi has no source configured yet —
+  # the first-run case — which is exactly when init must run.
+  when: chezmoi_status.rc != 0 or (chezmoi_status.stdout | trim) != ''
   changed_when: true
