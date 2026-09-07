@@ -44,11 +44,20 @@ if [[ ${#CHECK_FLAGS[@]} -gt 0 ]]; then
     echo "==> Dry run (no changes will be made)"
 fi
 
+# Passwordless sudo (the `sudo` role) makes the prompt unnecessary, but
+# --ask-become-pass prompts unconditionally — Ansible never checks whether it
+# is actually needed. Left unconditional it is the one thing that stops this
+# script running unattended on a machine configured precisely so that it can.
+BECOME_FLAGS=()
+if ! sudo -n true 2>/dev/null; then
+    BECOME_FLAGS=(--ask-become-pass)
+fi
+
 # The ${arr[@]+"${arr[@]}"} form is required: under `set -u`, expanding an
 # empty array with "${arr[@]}" is an unbound-variable error on older bash.
 ansible-playbook "${PLAYBOOK}" \
     ${CHECK_FLAGS[@]+"${CHECK_FLAGS[@]}"} \
-    --ask-become-pass \
+    ${BECOME_FLAGS[@]+"${BECOME_FLAGS[@]}"} \
     --extra-vars "target_user=$(id -un) target_home=${HOME}" \
     ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
 

@@ -102,6 +102,19 @@ presents as a rejected key rather than a permissions problem. `chmod 700 ~/.ssh`
   right vLLM container on demand and brings it back if it dies. The one
   daemon this repo runs — see [The one daemon](#the-one-daemon)
 - **Hermes Agent** — installed, left unconfigured (see below)
+- **Hermes agent profiles** — repo-managed, materialised from
+  [`profiles/`](profiles/) on every run. `sysadmin` makes OS changes *through*
+  this repo: it edits the `tooling` role, converges, verifies, and commits.
+  `harbor` develops the Harbor project and deliberately makes no OS changes at
+  all — it says what it needs and hands that work to `sysadmin`.
+
+  The split is about context rather than permissions. Knowing how to edit these
+  roles is a lot of detail that has nothing to do with Harbor, so only one
+  profile carries it. Each profile's contract is its `SOUL.md`; its reference
+  documentation lives in `profiles/<name>/skills/` and is read **in place**,
+  never copied — a profile's own `skills/` directory belongs to the agent, and
+  Ansible must not touch what `hermes update` and the background review write
+  there. Both profiles commit but never push, and neither has a gateway.
 
 **Out of scope** — what I happen to be running on it:
 
@@ -217,12 +230,18 @@ directly, without a passthrough layer in between.
 │       ├── ollama/                      # native Ollama install + service
 │       ├── llama_swap/                  # model gateway install + service
 │       ├── chezmoi/                     # chezmoi install + apply
-│       └── hermes/                      # Hermes CLI install (unconfigured)
+│       ├── hermes/                      # Hermes CLI install (unconfigured)
+│       └── hermes_profiles/             # agent profiles, from files
 ├── chezmoi/
 │   ├── dot_bashrc
 │   ├── dot_zshrc
 │   ├── dot_p10k.zsh
 │   └── dot_gitconfig.tmpl               # templated git identity + gh helper
+├── profiles/                            # agent profiles — SOUL.md + config,
+│   ├── sysadmin/                        #   copied to ~/.hermes/profiles/;
+│   │   └── skills/                      #   skills/ referenced in place via
+│   └── harbor/                          #   skills.external_dirs
+│       └── skills/
 ├── workloads/
 │   ├── llama-swap/                      # model catalogue — copied to /etc
 │   └── vllm/                            # Qwen3.6-35B-A3B NVFP4: flags + why

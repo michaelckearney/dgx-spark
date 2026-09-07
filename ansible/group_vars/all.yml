@@ -58,3 +58,47 @@ llama_swap_config_source: "{{ playbook_dir | dirname }}/workloads/llama-swap/con
 # silently re-download 21.85 GiB). This is why the value is set here, where
 # machine-specific paths already live.
 llama_swap_hf_cache: "{{ target_home }}/.cache/huggingface/hub"
+
+# Repo-managed Hermes agent profiles.
+#
+# Each profile is materialised from files under profiles/<name>/ — see
+# ansible/roles/hermes_profiles. Adding a profile means adding an entry here
+# plus a profiles/<name>/ directory; the role needs no change.
+#
+# `env` entries are written into the profile's .env with lineinfile, so this
+# repo owns those specific keys while leaving any real credential in the same
+# file alone. Keep secrets out of here — .env is the right place for those and
+# configure.sh is the way in.
+hermes_profiles:
+  - name: sysadmin
+    env: []
+  - name: harbor
+    env:
+      # Confines the file tools to the project tree. This is a focus
+      # mechanism, not a security boundary — the terminal tool is not bound
+      # by it, and nothing here is trying to contain a hostile agent.
+      - key: HERMES_WRITE_SAFE_ROOT
+        value: "{{ target_home }}/development/harbor"
+
+# Same cross-repo reference as chezmoi_source and llama_swap_config_source
+# above: the source of truth lives where it is readable and reviewable.
+#
+# Note that skills are NOT copied out of here. Each profile's config.yaml
+# points skills.external_dirs at profiles/<name>/skills in this checkout, and
+# Hermes reads them in place. See the role for why that matters.
+hermes_profiles_source: "{{ playbook_dir | dirname }}/profiles"
+hermes_profiles_root: "{{ target_home }}/.hermes/profiles"
+
+# Mirrors _PROFILE_DIRS in hermes_cli/profiles.py — a private constant in
+# Hermes, so this is a coupling to its internals rather than to a published
+# contract. If a future version adds a directory, this list is where to look.
+hermes_profile_skeleton_dirs:
+  - memories
+  - sessions
+  - skills
+  - skins
+  - logs
+  - plans
+  - workspace
+  - cron
+  - home

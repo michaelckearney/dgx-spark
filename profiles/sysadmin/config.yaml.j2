@@ -1,0 +1,53 @@
+# Hermes config for the `sysadmin` profile. Managed by the dgx-spark repo
+# (ansible/roles/hermes_profiles) — rendered over
+# ~/.hermes/profiles/sysadmin/config.yaml on every ./setup.sh.
+# Edit profiles/sysadmin/config.yaml.j2, not the rendered copy.
+
+# The llama-swap gateway. Because llama-swap is a service that holds the port
+# and loads models on demand, this endpoint answers whether or not a model is
+# resident — so the profile is reachable without anything being started first.
+# Keep in step with llama_swap_listen in ansible/group_vars/all.yml.
+model:
+  default: "nvidia/Qwen3.6-35B-A3B-NVFP4"
+  # "vllm" is an alias for "custom" (see cli-config.yaml.example in the Hermes
+  # source). Spelled this way because it is what the endpoint actually serves.
+  provider: "vllm"
+  base_url: "http://{{ llama_swap_listen }}/v1"
+
+skills:
+  # Repo-managed documentation, read in place rather than copied in.
+  #
+  # External dirs are read-only to Hermes: skill creation always writes to the
+  # profile's own skills/, sync_skills() skips anything an external dir already
+  # provides, and the curator only prunes skills it created itself. So these
+  # coexist with bundled skills and with whatever this agent learns, and none
+  # of the three can clobber another.
+  #
+  # Templated because the path depends on where this repo is checked out.
+  # Hermes silently ignores a path that does not exist — if skills stop
+  # appearing, check this resolves before looking anywhere else.
+  external_dirs:
+    - "{{ hermes_profiles_source }}/sysadmin/skills"
+
+# The approvals block is NOT documented in Hermes' cli-config.yaml.example.
+# The schema comes from _get_approval_config() / _get_approval_mode() in
+# tools/approval.py: mode is one of manual | smart | off, timeout is seconds.
+#
+# `manual` is a review step, not a security control. This profile changes the
+# machine, and the point of it is that those changes end up in this repo
+# correctly — so you want to see them happen.
+#
+# Not `smart`: that mode asks an auxiliary LLM to risk-assess each flagged
+# command, and on this box that request goes to the same llama-swap gateway as
+# the real work — queueing behind it or swapping the loaded model.
+#
+# Note deny rules are matched against the command string, so they stop the
+# direct form and not a script that contains the same command. These two exist
+# to keep the mode above from being turned off at launch, which is the one
+# bypass that would make everything else here moot.
+approvals:
+  mode: manual
+  timeout: 300
+  deny:
+    - "*--yolo*"
+    - "*HERMES_YOLO_MODE*"

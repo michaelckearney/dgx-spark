@@ -1,0 +1,6 @@
+# Harbor's repo-managed skills go here.
+#
+# This file exists so the directory is committed. Hermes silently drops an
+# external_dirs path that does not exist, and an empty directory is not
+# tracked by git — so removing this file would quietly disable the whole
+# external-skills path for this profile.
