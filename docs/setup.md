@@ -91,7 +91,7 @@ du -sh /usr/share/ollama/.ollama/models
 
 The model directory is pinned explicitly by a systemd drop-in at
 `/etc/systemd/system/ollama.service.d/10-models-dir.conf`, generated from the
-`ollama_models_dir` variable in `ansible/group_vars/all.yml`. Change that
+`ollama_models_dir` variable in `roles/ollama/defaults/main.yml`. Change that
 variable and re-run `./setup.sh` to relocate model storage.
 
 Models are deliberately **not** declared in this repo — pull what you want,
@@ -119,7 +119,7 @@ The model catalogue is `workloads/llama-swap/config.yaml`, copied to
 re-run `./setup.sh`; the role validates it before moving it into place and
 reloads the service with `SIGHUP`, which leaves an already-loaded model
 running. Version and listen address come from `llama_swap_*` in
-`ansible/group_vars/all.yml`.
+`roles/llama_swap/defaults/main.yml`.
 
 **Nothing is loaded at boot.** A rebooted machine nobody talks to holds zero
 GPU, while `/v1/models` still answers.
@@ -365,9 +365,9 @@ echo "HF_TOKEN=hf_..." > .env
 docker compose up -d
 ```
 
-The exception is [`workloads/`](../workloads/), which version-controls the
-definitions for things launched by hand, plus the llama-swap model catalogue —
-the one file there that Ansible does deploy, to `/etc/llama-swap/config.yaml`.
+[`workloads/`](../workloads/) holds the documentation for what runs on this
+machine, plus the llama-swap model catalogue — the one file there that Ansible
+deploys, to `/etc/llama-swap/config.yaml`.
 
 Local models are no longer started by hand at all. Ask the gateway for one by
 name and it starts the container for you:

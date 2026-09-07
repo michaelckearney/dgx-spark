@@ -6,7 +6,7 @@ directly — no `apt install`, no editing `/etc`, no `systemctl enable` that
 isn't written down.
 
 Packages, services, system configuration, units, mounts, the model gateway
-catalogue: yours. Workloads are not — `workloads/` is started by hand.
+catalogue: yours. Workloads are not.
 
 If a change can't be expressed as an edit to this repo, stop and say what
 would be needed.

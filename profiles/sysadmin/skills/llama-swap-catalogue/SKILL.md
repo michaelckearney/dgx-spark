@@ -66,7 +66,8 @@ Three things in a `cmd` are load-bearing and easy to get wrong:
 
 ## Changing the version
 
-`llama_swap_version` and `llama_swap_sha256` in `group_vars/all.yml` move
+`llama_swap_version` and `llama_swap_sha256` in
+`roles/llama_swap/defaults/main.yml` move
 together. Get both from the release's checksums file. The install is
 version-gated rather than `creates:`-gated, so bumping the version actually
 upgrades. Note the tag carries a `v` and the asset filename does not.
