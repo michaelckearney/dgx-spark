@@ -377,8 +377,9 @@ curl -sS http://localhost:8000/v1/models
 ```
 
 See [`workloads/llama-swap/README.md`](../workloads/llama-swap/README.md) for
-operating it and [`workloads/vllm/README.md`](../workloads/vllm/README.md) for
-what the Qwen3.6 flags mean and how to run it standalone when debugging.
+operating it, including how to run vLLM standalone when debugging. The Qwen3.6
+flags carry their provenance inline in
+[`workloads/llama-swap/config.yaml`](../workloads/llama-swap/config.yaml).
 
 ## Adding new configuration
 

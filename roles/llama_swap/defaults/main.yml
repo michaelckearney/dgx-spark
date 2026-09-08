@@ -17,9 +17,9 @@ llama_swap_config_dir: /etc/llama-swap
 # access control here.
 llama_swap_listen: "127.0.0.1:8000"
 
-# The catalogue lives in workloads/ next to the vLLM docs that explain its
-# flags, and Ansible copies it to /etc. It is the same long vLLM flag list
-# that directory exists to preserve.
+# The catalogue lives in workloads/ and Ansible copies it to /etc. It is the
+# long vLLM flag list that directory exists to preserve, and it documents the
+# provenance of every non-obvious flag inline.
 llama_swap_config_source: "{{ playbook_dir }}/workloads/llama-swap/config.yaml"
 
 # Injected into the service environment as HF_CACHE and referenced from

@@ -142,21 +142,20 @@ files upstream — clone them somewhere and run them directly when you want
 them. Keeping them out of this repo means nothing gets resurrected by a
 config sync I forgot about.
 
-**The one exception** is [`workloads/`](workloads/), which stores the
-definitions for things I launch by hand. It's version-controlled so I don't
-have to re-derive a long flag list, not so that something runs it for me.
+[`workloads/llama-swap/`](workloads/llama-swap/) is the one thing that sits
+between the two. It holds the model catalogue and the notes on operating the
+gateway — not a workload to launch, but the description of what the gateway is
+allowed to launch, and the provenance of every non-obvious vLLM flag in it.
 
-[`workloads/llama-swap/config.yaml`](workloads/llama-swap/config.yaml) is the
-exception to the exception: Ansible copies it to `/etc/llama-swap/config.yaml`,
-because the gateway that reads it is a service and services read their config
-from `/etc`. Ansible still only *installs* it — it lands at converge time and
-the service is reloaded once, deliberately. It is not watched and not polled;
-llama-swap's `--watch-config` exists and is not used.
+Ansible copies the catalogue to `/etc/llama-swap/config.yaml`, because the
+gateway that reads it is a service and services read their config from `/etc`.
+It lands at converge time and the service is reloaded once, deliberately. It is
+not watched and not polled; llama-swap's `--watch-config` exists and is not
+used.
 
-It lives in `workloads/` rather than inside the role because it is the same
-long vLLM flag list the directory exists to preserve, and it belongs next to
-[`workloads/vllm/README.md`](workloads/vllm/README.md), which explains where
-those flags come from.
+It lives in `workloads/` rather than inside the role because it is the long
+vLLM flag list that directory exists to preserve, and the file carries the
+provenance of every non-obvious flag inline.
 
 ## What it installs, it runs
 
@@ -270,7 +269,7 @@ directly, without a passthrough layer in between.
 │   └── secrets/                 # prompts, stores, and applies credentials
 ├── chezmoi/                     # dotfile sources
 ├── profiles/                    # Hermes agent profiles: SOUL.md, config, skills
-├── workloads/                   # manual only — nothing auto-runs
+├── workloads/llama-swap/        # model catalogue, deployed to /etc
 └── docs/setup.md
 ```
 
