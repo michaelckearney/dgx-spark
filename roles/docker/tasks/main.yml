@@ -1,0 +1,24 @@
+---
+# Role: docker
+# Ensures Docker is usable by the login user without sudo.
+# Docker itself is pre-installed on the DGX Spark — this role does NOT install it.
+# It only adds the login user to the docker group.
+#
+# Scope note: docker group membership is root-equivalent — anything in it can
+# bind-mount / and run privileged containers. That is not an escalation on this
+# machine (the sudo role grants NOPASSWD: ALL anyway), but it is worth knowing
+# that removing the sudoers rule would not take root away.
+
+- name: Verify Docker is installed
+  ansible.builtin.command: docker --version
+  register: docker_version
+  changed_when: false
+  failed_when: docker_version.rc != 0
+  check_mode: false          # read-only probe; safe to run during --check
+
+- name: Add the login user to the docker group
+  become: true
+  ansible.builtin.user:
+    name: "{{ ansible_facts['user_id'] }}"
+    groups: docker
+    append: true

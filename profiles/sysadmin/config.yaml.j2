@@ -1,12 +1,12 @@
 # Hermes config for the `sysadmin` profile. Managed by the dgx-spark repo
-# (ansible/roles/hermes_profiles) — rendered over
+# (roles/hermes_profiles) — rendered over
 # ~/.hermes/profiles/sysadmin/config.yaml on every ./setup.sh.
 # Edit profiles/sysadmin/config.yaml.j2, not the rendered copy.
 
 # The llama-swap gateway. Because llama-swap is a service that holds the port
 # and loads models on demand, this endpoint answers whether or not a model is
 # resident — so the profile is reachable without anything being started first.
-# Keep in step with llama_swap_listen in ansible/group_vars/all.yml.
+# Keep in step with llama_swap_listen in inventory/group_vars/all/main.yml.
 model:
   default: "nvidia/Qwen3.6-35B-A3B-NVFP4"
   # "vllm" is an alias for "custom" (see cli-config.yaml.example in the Hermes
@@ -51,3 +51,29 @@ approvals:
   deny:
     - "*--yolo*"
     - "*HERMES_YOLO_MODE*"
+    # SOUL.md says commit but never push. A deny rule makes that structural
+    # rather than a matter of the model following instructions, and deny is
+    # checked before every bypass — so it holds even if approvals are turned
+    # off. Pushing is the only step in the loop that leaves this machine.
+    - "*git push*"
+
+  # The one command this profile exists to run. Allowlisting it exactly means
+  # a converge needs no human, while everything else still stops for one.
+  #
+  # The allowlist is checked before the single-query deny below, which is what
+  # makes `hermes -p sysadmin -q "..."` work end to end: setup.sh runs, and
+  # anything unexpected fails closed instead of hanging on a prompt nobody can
+  # answer.
+  #
+  # Entries never match a command containing shell operators, so this cannot be
+  # chained past with `./setup.sh; something-else`.
+  command_allowlist:
+    - "./setup.sh"
+    - "./setup.sh --check"
+
+  # Non-interactive one-shot sessions (-q), which is how `harbor` reaches this
+  # profile. `deny` rather than `approve`: anything outside the allowlist above
+  # fails immediately instead of waiting out the 300s timeout, and a failure
+  # that says "this needed approval" is a far better outcome than an agent
+  # quietly granted root because nobody was watching.
+  single_query_mode: deny

@@ -1,0 +1,33 @@
+---
+# Repo-managed Hermes agent profiles, materialised from files under
+# profiles/<name>/. Adding one means adding an entry here plus that directory;
+# the role needs no change.
+#
+# `env` entries are written with lineinfile, so this repo owns those specific
+# keys while leaving any real credential in the same file alone.
+hermes_profiles:
+  - name: sysadmin
+    env: []
+  - name: harbor
+    env:
+      # Confines the file tools to the project tree. A focus mechanism, not a
+      # security boundary — the terminal tool is not bound by it.
+      - key: HERMES_WRITE_SAFE_ROOT
+        value: "{{ ansible_facts['env']['HOME'] }}/development/harbor"
+
+hermes_profiles_source: "{{ playbook_dir }}/profiles"
+hermes_profiles_root: "{{ ansible_facts['env']['HOME'] }}/.hermes/profiles"
+
+# Mirrors _PROFILE_DIRS in hermes_cli/profiles.py — a private constant in
+# Hermes, so this is a coupling to its internals rather than to a published
+# contract. If a future version adds a directory, this list is where to look.
+hermes_profile_skeleton_dirs:
+  - memories
+  - sessions
+  - skills
+  - skins
+  - logs
+  - plans
+  - workspace
+  - cron
+  - home

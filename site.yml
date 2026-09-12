@@ -1,0 +1,53 @@
+---
+# The one playbook. `./setup.sh` runs this; there is nothing else to run.
+#
+# Note what is NOT here: `become: true`. The play runs as the login user, and
+# the individual tasks that need root ask for it themselves. That way
+# `ansible_facts['user_id']` and `ansible_facts['env']['HOME']` are simply correct everywhere, and
+# no role has to undo a play-level become or be told who the real user is.
+- name: Configure this DGX Spark
+  hosts: all
+  gather_facts: true
+
+  roles:
+    - role: docker
+      tags: [docker]
+    - role: sudo
+      tags: [sudo]
+    - role: tooling
+      tags: [tooling]
+    - role: tailscale
+      tags: [tailscale]
+    - role: ollama
+      tags: [ollama]
+    # After docker: the service account needs the `docker` group to exist.
+    # Before hermes: the hermes role's completion message points at an
+    # endpoint to configure, and that endpoint is this gateway.
+    - role: llama_swap
+      tags: [llama-swap]
+    - role: chezmoi
+      tags: [chezmoi, dotfiles]
+    # After chezmoi: once ~/.hermes/config.yaml is chezmoi-managed, chezmoi
+    # lays it down first and the Hermes installer preserves the existing file
+    # rather than overwriting it with its template.
+    - role: hermes
+      tags: [hermes]
+    - role: hermes_profiles
+      tags: [hermes, profiles]
+    # Last: every consumer it writes to has to exist first — gh from tooling,
+    # ~/.hermes/.env from hermes, tailscaled from tailscale. It is also the
+    # only role that prompts, so the machine is otherwise fully converged
+    # before anyone is asked a question.
+    - role: secrets
+      tags: [secrets]
+
+  post_tasks:
+    # Deliberately last. Switching the login shell before Oh My Zsh,
+    # Powerlevel10k, and the chezmoi-managed ~/.zshrc are all in place leaves
+    # you logging into a bare, unconfigured zsh.
+    - name: Ensure the login shell is zsh
+      ansible.builtin.user:
+        name: "{{ ansible_facts['user_id'] }}"
+        shell: /usr/bin/zsh
+      become: true
+      tags: [tooling]

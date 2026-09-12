@@ -1,0 +1,125 @@
+---
+# Role: hermes_profiles
+# Materialises the repo-managed Hermes agent profiles from files under
+# profiles/<name>/.
+#
+# Why files rather than `hermes profile create`:
+#
+#   * Profiles are pure filesystem. get_profile_dir() in hermes_cli/profiles.py
+#     is `_get_profiles_root() / name`, and discovery iterates that directory
+#     filtering on a name regex. There is no registry to enrol with — a
+#     directory with the right name IS a profile.
+#   * `create_profile()` raises FileExistsError on a second run, so calling it
+#     would need guarding to stay idempotent.
+#   * As a `command:` task it would also be invisible to --check. Every task
+#     below is a file/copy/template module, so a dry run reports this role.
+#
+# WHY SKILLS ARE NOT COPIED — the important part of this role.
+#
+# A profile's own skills/ directory is not ours. Three things write there:
+# `hermes update` syncs bundled skills into it, the background review fork
+# writes skills the agent learns, and the curator consolidates and prunes the
+# ones it created. Copying repo skills in with force: true would delete
+# everything the agent had learned, on every ./setup.sh.
+#
+# Instead each profile's config.yaml sets skills.external_dirs to
+# profiles/<name>/skills in this checkout. Hermes treats external dirs as
+# read-only, sync_skills() skips anything an external dir already provides, and
+# the curator never touches them. Repo-managed documentation and agent-learned
+# skills coexist without either clobbering the other.
+#
+# A side effect worth knowing: skills are read live from the checkout, so
+# editing one takes effect without a converge. That is deliberate — they are
+# documentation, not system state.
+#
+# HAZARD: a profile's own config.yaml lives in a repository that profile can
+# edit, so an agent that set approvals.mode to off and re-ran the playbook
+# would be granting itself unattended root. It commits but never pushes,
+# SOUL.md puts profiles/ out of bounds, and any diff touching that path is a
+# review stop-sign. Treat it as one.
+#
+# No become anywhere in this role: everything here is under the login user's
+# own home, and the play does not escalate.
+
+- name: Check whether the Hermes home exists
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['env']['HOME'] }}/.hermes"
+  register: hermes_home
+
+# The hermes role installs with `creates:`, and shell modules don't run in
+# check mode — so on a --check against a machine without Hermes yet, that
+# install is skipped and this directory doesn't exist.
+- name: Configure the repo-managed Hermes profiles
+  when: hermes_home.stat.exists
+  block:
+
+    # No mode here, deliberately. Hermes keeps its whole profile tree at 0700
+    # and actively manages some of these — cron/ holds executions.db and a live
+    # ticker. Forcing 0755 made this task report changed on every single run
+    # (Hermes put it straight back) and quietly widened permissions on a
+    # directory Hermes had chosen to keep private. These directories are
+    # Hermes' to own; this role only makes sure they exist.
+    - name: Ensure each profile's directories exist
+      ansible.builtin.file:
+        path: "{{ hermes_profiles_root }}/{{ item.0 }}/{{ item.1 }}"
+        state: directory
+      loop: >-
+        {{ hermes_profiles | map(attribute='name')
+           | product(hermes_profile_skeleton_dirs) | list }}
+      loop_control:
+        label: "{{ item.0 }}/{{ item.1 }}"
+
+    # This looks like boilerplate and is load-bearing. From the comment on the
+    # equivalent step in create_profile(): without its own .env, a profile
+    # "silently inherited API keys from the shell environment". force: false
+    # because a credential written here later is real state this repo does not
+    # own and must never clobber.
+    - name: Seed each profile's own .env
+      ansible.builtin.copy:
+        dest: "{{ hermes_profiles_root }}/{{ item.name }}/.env"
+        mode: "0600"
+        force: false
+        content: |
+          # Per-profile secrets for this Hermes profile.
+          # Behavioral settings belong in config.yaml, not here.
+      loop: "{{ hermes_profiles }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # lineinfile rather than a rewrite: this repo owns these specific keys, and
+    # everything else in the file has to survive untouched.
+    - name: Set the repo-owned environment keys in each profile's .env
+      ansible.builtin.lineinfile:
+        path: "{{ hermes_profiles_root }}/{{ item.0.name }}/.env"
+        regexp: "^(export[[:space:]]+)?{{ item.1.key }}="
+        line: "{{ item.1.key }}={{ item.1.value }}"
+        mode: "0600"
+      loop: "{{ hermes_profiles | subelements('env') }}"
+      loop_control:
+        label: "{{ item.0.name }}: {{ item.1.key }}"
+
+    # force: true — the repo is authoritative for SOUL.md and config.yaml, the
+    # same contract the chezmoi role states for dotfiles. Edit the source in
+    # profiles/<name>/, not the copy under ~/.hermes.
+    - name: Install each profile's operating contract
+      ansible.builtin.copy:
+        src: "{{ hermes_profiles_source }}/{{ item.name }}/SOUL.md"
+        dest: "{{ hermes_profiles_root }}/{{ item.name }}/SOUL.md"
+        mode: "0644"
+      loop: "{{ hermes_profiles }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # A template rather than a copy because skills.external_dirs carries the
+    # absolute path of this checkout, which is machine-specific.
+    #
+    # Without a model block Hermes resolves no provider and the first turn dies
+    # with "No LLM provider configured" — created, but unable to run.
+    - name: Install each profile's config
+      ansible.builtin.template:
+        src: "{{ hermes_profiles_source }}/{{ item.name }}/config.yaml.j2"
+        dest: "{{ hermes_profiles_root }}/{{ item.name }}/config.yaml"
+        mode: "0644"
+      loop: "{{ hermes_profiles }}"
+      loop_control:
+        label: "{{ item.name }}"

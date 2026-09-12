@@ -21,9 +21,9 @@ Every model this agent talks to arrives through it.
 |---|---|
 | Catalogue source (edit this) | `workloads/llama-swap/config.yaml` |
 | Deployed catalogue | `/etc/llama-swap/config.yaml` |
-| Service unit template | `ansible/roles/llama_swap/templates/llama-swap.service.j2` |
-| Role | `ansible/roles/llama_swap/` |
-| Version + checksum + listen address | `ansible/group_vars/all.yml` |
+| Service unit template | `roles/llama_swap/templates/llama-swap.service.j2` |
+| Role | `roles/llama_swap/` |
+| Version + checksum + listen address | `inventory/group_vars/all/main.yml` |
 
 The role copies the catalogue to `/etc` and reloads the service. It is not
 watched and not polled — `--watch-config` exists upstream and is deliberately
@@ -66,7 +66,8 @@ Three things in a `cmd` are load-bearing and easy to get wrong:
 
 ## Changing the version
 
-`llama_swap_version` and `llama_swap_sha256` in `group_vars/all.yml` move
+`llama_swap_version` and `llama_swap_sha256` in
+`roles/llama_swap/defaults/main.yml` move
 together. Get both from the release's checksums file. The install is
 version-gated rather than `creates:`-gated, so bumping the version actually
 upgrades. Note the tag carries a `v` and the asset filename does not.

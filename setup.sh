@@ -1,72 +1,37 @@
 #!/usr/bin/env bash
-# setup.sh — apply this repo's configuration to the machine you're sitting at.
-#
-# Run it by hand, from a clone of this repo, whenever you want to sync.
-# Nothing in this repo runs on its own.
+# setup.sh — set this machine up, and keep it that way.
 #
 #   git clone https://github.com/michaelckearney/dgx-spark.git
 #   cd dgx-spark && ./setup.sh
 #
-# Safe to re-run: every step is idempotent.
+# Run it again any time; every step is idempotent. There is no second command:
+# if something still needs a value from you, this asks for it, and if nobody is
+# at the keyboard it does everything it can and tells you what is left.
+#
+#   ./setup.sh            configure the machine
+#   ./setup.sh --check    dry run, changes nothing
+#
+# Anything else is passed straight through to ansible-playbook.
+#
+# This script deliberately does almost nothing. It exists for the two jobs
+# Ansible cannot do for itself: install Ansible, and know whether a human is
+# present. Everything else lives in site.yml and roles/.
 set -euo pipefail
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLAYBOOK="${REPO_ROOT}/ansible/playbook.yml"
+cd "$(dirname "${BASH_SOURCE[0]}")"
 
-echo "==> Applying DGX Spark configuration from ${REPO_ROOT}"
-
-# --- Install Ansible if not present ---
-if ! command -v ansible-playbook &>/dev/null; then
-    echo "==> Ansible not found, installing..."
+if ! command -v ansible-playbook >/dev/null 2>&1; then
+    echo "==> Installing Ansible..."
     sudo apt-get update -qq
     sudo apt-get install -y -qq software-properties-common
     sudo add-apt-repository --yes --update ppa:ansible/ansible
     sudo apt-get install -y -qq ansible
-else
-    echo "==> Ansible is already installed."
 fi
 
-# --- Argument handling ---
-# --check is consumed here; everything else is forwarded verbatim to
-# ansible-playbook, which is what makes the documented override work:
-#   ./setup.sh --extra-vars "git_user_name='Ada Lovelace'"
-CHECK_FLAGS=()
-PASSTHROUGH=()
-for arg in "$@"; do
-    if [[ "$arg" == "--check" ]]; then
-        CHECK_FLAGS=(--check --diff)
-    else
-        PASSTHROUGH+=("$arg")
-    fi
-done
+# Whether to prompt is a question about the terminal, so bash answers it and
+# Ansible is simply told. `pause` degrades safely without a tty on its own —
+# it warns and returns empty — but it warns once per prompt, and this is what
+# keeps an agent's output clean.
+[[ -t 0 ]] && INTERACTIVE=true || INTERACTIVE=false
 
-if [[ ${#CHECK_FLAGS[@]} -gt 0 ]]; then
-    echo "==> Dry run (no changes will be made)"
-fi
-
-# Passwordless sudo (the `sudo` role) makes the prompt unnecessary, but
-# --ask-become-pass prompts unconditionally — Ansible never checks whether it
-# is actually needed. Left unconditional it is the one thing that stops this
-# script running unattended on a machine configured precisely so that it can.
-BECOME_FLAGS=()
-if ! sudo -n true 2>/dev/null; then
-    BECOME_FLAGS=(--ask-become-pass)
-fi
-
-# The ${arr[@]+"${arr[@]}"} form is required: under `set -u`, expanding an
-# empty array with "${arr[@]}" is an unbound-variable error on older bash.
-ansible-playbook "${PLAYBOOK}" \
-    ${CHECK_FLAGS[@]+"${CHECK_FLAGS[@]}"} \
-    ${BECOME_FLAGS[@]+"${BECOME_FLAGS[@]}"} \
-    --extra-vars "target_user=$(id -un) target_home=${HOME}" \
-    ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
-
-echo "==> Done."
-echo "==> If docker group membership changed, log out and back in."
-
-# Report any secrets still needed. Delegated to configure.sh so the probes live
-# in exactly one place; --hint prints nothing when everything is configured.
-# Never prompts, so setup.sh stays safe to run unattended.
-if [[ ${#CHECK_FLAGS[@]} -eq 0 && -x "${REPO_ROOT}/configure.sh" ]]; then
-    "${REPO_ROOT}/configure.sh" --hint || true
-fi
+exec ansible-playbook site.yml -e "interactive=${INTERACTIVE}" "$@"

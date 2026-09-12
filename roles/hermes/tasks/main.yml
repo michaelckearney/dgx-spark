@@ -1,0 +1,84 @@
+---
+# Role: hermes
+# Installs the Nous Research Hermes Agent CLI and leaves it ready to configure.
+#
+# Installed with --non-interactive, which runs every stage except `setup`
+# (API keys and settings) and `gateway` (Telegram/Discord service). Hermes
+# therefore lands installed but UNCONFIGURED, by design: configure it by hand
+# over SSH against a running vLLM endpoint, then check the resulting
+# ~/.hermes/config.yaml into chezmoi once you're happy with it.
+#
+# Two things this role deliberately does not do:
+#
+#   * Run as root. The installer branches on uid — as root it puts code in
+#     /usr/local/lib/hermes-agent and data in /root/.hermes, which the login
+#     user would never see. This role therefore takes no become at all, which
+#     is the default now that the play does not escalate.
+#
+#   * Manage PATH. The installer appends ~/.local/bin to ~/.zshrc, but that
+#     file is chezmoi-managed and would be overwritten on the next run. The
+#     PATH line lives in chezmoi/dot_zshrc instead.
+
+- name: Install Hermes Agent
+  ansible.builtin.shell: |
+    set -o pipefail
+    curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh \
+      | bash -s -- --non-interactive
+  args:
+    executable: /bin/bash
+    creates: "{{ ansible_facts['env']['HOME'] }}/.local/bin/hermes"
+  environment:
+    HOME: "{{ ansible_facts['env']['HOME'] }}"
+  register: hermes_install
+
+- name: Note what Hermes still needs by hand
+  ansible.builtin.debug:
+    msg: >-
+      Hermes is installed and its gateway is running, but --non-interactive
+      skipped the setup wizard. Point it at a model with `hermes model`
+      (http://localhost:8000/v1) and enable capabilities with `hermes tools`.
+      The picker reads /v1/models from llama-swap, which answers whether or not
+      a model is loaded, so nothing needs starting first. Upgrade with
+      `hermes update`, not by re-running this playbook.
+  when: hermes_install.changed
+
+# --- the gateway ---------------------------------------------------------------
+# Stood up here rather than alongside the Telegram token, and unconditionally.
+#
+# The gateway is not a Telegram thing. It runs the cron ticker for every
+# profile, so scheduled agent work depends on it whether or not a messaging
+# adapter is configured. Installing it only when a bot token exists made "do I
+# have a bot?" decide "does scheduled work run?", and a machine rebuilt without
+# Telegram would have lost the ticker silently.
+#
+# It needs the binary the task above installs. Shell modules don't run under
+# --check, so on a dry run against a fresh machine that install is skipped and
+# these must be too — the same gate the ollama and llama_swap roles use.
+
+- name: Check whether the Hermes CLI is installed
+  ansible.builtin.stat:
+    path: "{{ ansible_facts['env']['HOME'] }}/.local/bin/hermes"
+  register: hermes_binary
+
+- name: Run the Hermes gateway as a service
+  when: hermes_binary.stat.exists
+  block:
+
+    # A user service with no logged-in session dies with the session that
+    # started it. Lingering is what lets the gateway survive logout and come
+    # back after a reboot, which is what --start-on-login is supposed to mean.
+    - name: Allow this user's services to run without a login session
+      ansible.builtin.command: "loginctl enable-linger {{ ansible_facts['user_id'] }}"
+      args:
+        creates: "/var/lib/systemd/linger/{{ ansible_facts['user_id'] }}"
+      become: true
+
+    # A no-op when the unit already exists — it prints "Service already
+    # installed" and returns without restarting. Restarting on a token change
+    # is the secrets role's handler, not this.
+    - name: Install the Hermes gateway service
+      ansible.builtin.command: hermes gateway install --start-now --start-on-login
+      register: hermes_gateway_install
+      changed_when: "'already installed' not in (hermes_gateway_install.stdout | lower)"
+      environment:
+        PATH: "{{ ansible_facts['env']['HOME'] }}/.local/bin:{{ ansible_facts['env']['PATH'] }}"

@@ -1,0 +1,64 @@
+---
+# Role: chezmoi
+# Installs chezmoi and applies user-level dotfiles from the repo.
+
+- name: Check if chezmoi is installed
+  ansible.builtin.command: which chezmoi
+  register: chezmoi_check
+  changed_when: false
+  failed_when: false
+  check_mode: false          # read-only probe; safe to run during --check
+
+- name: Install chezmoi
+  become: true
+  ansible.builtin.shell: |
+    curl -fsLS get.chezmoi.io | sh -s -- -b /usr/local/bin
+  args:
+    creates: /usr/local/bin/chezmoi
+  when: chezmoi_check.rc != 0
+# --force and --no-tty are load-bearing, not defensive noise.
+#
+# Other installers write to files chezmoi owns — the Hermes installer appends
+# a PATH line to ~/.zshrc, ~/.bashrc and ~/.profile. On the next run chezmoi
+# notices "~/.zshrc has changed since chezmoi last wrote it", tries to prompt
+# for what to do, finds no TTY under Ansible, and the whole play fails. That
+# made this playbook succeed on first run and fail on every run after.
+#
+# --force makes chezmoi authoritative: it overwrites those external edits
+# without asking, which is exactly the contract this repo wants for dotfiles.
+# Local edits to chezmoi-managed files are discarded on the next ./setup.sh —
+# edit the source in chezmoi/ instead.
+#
+# --no-tty guarantees that any future prompt fails loudly instead of hanging
+# forever waiting on a terminal that isn't there.
+- name: Check whether chezmoi has anything to apply
+  ansible.builtin.command: "chezmoi status --source {{ chezmoi_source }}"
+  register: chezmoi_status
+  changed_when: false
+  failed_when: false
+  check_mode: false          # read-only probe; safe during --check
+
+- name: Initialize chezmoi and apply dotfiles
+  ansible.builtin.command:
+    argv:
+      - chezmoi
+      - init
+      - --source
+      - "{{ chezmoi_source }}"
+      - --apply
+      - --force
+      - --no-tty
+  environment:
+    HOME: "{{ ansible_facts['env']['HOME'] }}"
+    # Consumed by chezmoi/dot_gitconfig.tmpl so the git identity isn't
+    # hardcoded to one person. See git_user_name / git_user_email in
+    # inventory/group_vars/all/main.yml.
+    CHEZMOI_GIT_USER_NAME: "{{ git_user_name }}"
+    CHEZMOI_GIT_USER_EMAIL: "{{ git_user_email }}"
+  # Gated on chezmoi having something to do, rather than reporting a change
+  # unconditionally. `chezmoi status` prints one line per file that differs and
+  # nothing at all when the target matches the source, so empty output means
+  # this is a no-op. A non-zero rc means chezmoi has no source configured yet —
+  # the first-run case — which is exactly when init must run.
+  when: chezmoi_status.rc != 0 or (chezmoi_status.stdout | trim) != ''
+  changed_when: true
