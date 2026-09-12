@@ -1,0 +1,41 @@
+# Managed by the dgx-spark repo (roles/dotfiles). Edit the template, not
+# ~/.gitconfig — this is written on every converge and local edits are lost.
+
+# Identity is parameterised so this repo isn't tied to one person. It comes
+# from git_user_name / git_user_email in inventory/group_vars/all/main.yml,
+# which default to this machine's own user@host — an obvious placeholder
+# rather than someone else's name. Override per run without editing anything:
+#
+#   ./setup.sh --extra-vars "git_user_name='Ada Lovelace' git_user_email=ada@example.com"
+#
+# Those defaults are load-bearing: an empty value here produces `name =`, and
+# git then fails at commit time with "Please tell me who you are".
+[user]
+	name = {{ git_user_name }}
+	email = {{ git_user_email }}
+
+# Use the GitHub CLI as git's credential helper.
+#
+# This is laid down by this template rather than by `gh auth setup-git`, because
+# that command fails outright when no host is authenticated yet — it cannot
+# run during a fresh bootstrap. A static config has no such problem: it is
+# simply inert until `gh auth login` stores a token, and works from then on.
+#
+# The empty `helper =` line is not a typo. It clears any credential helpers
+# inherited from system or global config so gh's helper is the one that runs.
+#
+# This only covers HTTPS remotes. An SSH remote (git@github.com:...) bypasses
+# credential helpers entirely and needs a key instead.
+[credential "https://github.com"]
+	helper =
+	helper = !gh auth git-credential
+
+[credential "https://gist.github.com"]
+	helper =
+	helper = !gh auth git-credential
+
+[init]
+	defaultBranch = main
+
+[pull]
+	ff = only

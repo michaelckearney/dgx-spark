@@ -3,7 +3,7 @@
 # another's. Everything else lives in the defaults/ of the role that owns it,
 # which is where you should look first when you want to change behaviour.
 
-# Git identity written into ~/.gitconfig by chezmoi.
+# Git identity written into ~/.gitconfig by the dotfiles role.
 #
 # These default to the machine's own user@host so the repo runs as-is for
 # anyone, with an obviously-placeholder identity rather than someone else's.

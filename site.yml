@@ -25,11 +25,11 @@
     # endpoint to configure, and that endpoint is this gateway.
     - role: llama_swap
       tags: [llama-swap]
-    - role: chezmoi
-      tags: [chezmoi, dotfiles]
-    # After chezmoi: once ~/.hermes/config.yaml is chezmoi-managed, chezmoi
-    # lays it down first and the Hermes installer preserves the existing file
-    # rather than overwriting it with its template.
+    - role: dotfiles
+      tags: [dotfiles]
+    # After dotfiles: the Hermes installer appends a PATH line to ~/.zshrc, and
+    # this repo's ~/.zshrc already carries that line. Writing the file first
+    # means the installer finds nothing to add.
     - role: hermes
       tags: [hermes]
     - role: hermes_profiles
@@ -43,7 +43,7 @@
 
   post_tasks:
     # Deliberately last. Switching the login shell before Oh My Zsh,
-    # Powerlevel10k, and the chezmoi-managed ~/.zshrc are all in place leaves
+    # Powerlevel10k, and the repo's ~/.zshrc are all in place leaves
     # you logging into a bare, unconfigured zsh.
     - name: Ensure the login shell is zsh
       ansible.builtin.user:

@@ -6,7 +6,7 @@
 # (API keys and settings) and `gateway` (Telegram/Discord service). Hermes
 # therefore lands installed but UNCONFIGURED, by design: configure it by hand
 # over SSH against a running vLLM endpoint, then check the resulting
-# ~/.hermes/config.yaml into chezmoi once you're happy with it.
+# ~/.hermes/config.yaml into this repo once you're happy with it.
 #
 # Two things this role deliberately does not do:
 #
@@ -16,8 +16,8 @@
 #     is the default now that the play does not escalate.
 #
 #   * Manage PATH. The installer appends ~/.local/bin to ~/.zshrc, but that
-#     file is chezmoi-managed and would be overwritten on the next run. The
-#     PATH line lives in chezmoi/dot_zshrc instead.
+#     file is written by the dotfiles role and would be overwritten on the
+#     next run. The PATH line lives in roles/dotfiles/files/zshrc instead.
 
 - name: Install Hermes Agent
   ansible.builtin.shell: |

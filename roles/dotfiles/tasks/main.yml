@@ -1,0 +1,37 @@
+---
+# Role: dotfiles
+# Writes the shell and git configuration this machine runs with.
+#
+# These were deployed with chezmoi until it was removed. chezmoi's one feature
+# that Ansible lacks is noticing when a target changed since chezmoi last wrote
+# it — and this repo had to disable that with --force, because other installers
+# (the Hermes one appends a PATH line to ~/.zshrc) would otherwise make chezmoi
+# prompt for what to do and hang with no TTY under Ansible. A second
+# templating and file-deployment system, with its distinguishing feature turned
+# off, for four files.
+#
+# The contract is unchanged: the repo is authoritative. Edit the source here,
+# not the copy in $HOME, because the copy is overwritten on every converge.
+#
+# No become — these are the login user's own files, and the play does not
+# escalate.
+
+- name: Install the shell dotfiles
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ ansible_facts['env']['HOME'] }}/{{ item.dest }}"
+    mode: "0644"
+  loop:
+    - { src: bashrc, dest: .bashrc }
+    - { src: zshrc, dest: .zshrc }
+    - { src: p10k.zsh, dest: .p10k.zsh }
+  loop_control:
+    label: "{{ item.dest }}"
+
+# A template rather than a copy: the git identity is parameterised so this repo
+# is not tied to one person.
+- name: Install the git configuration
+  ansible.builtin.template:
+    src: gitconfig.j2
+    dest: "{{ ansible_facts['env']['HOME'] }}/.gitconfig"
+    mode: "0644"

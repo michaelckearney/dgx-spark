@@ -58,17 +58,16 @@ Every role is tagged, so you can converge a slice:
 | Powerlevel10k | Cloned to `~/.oh-my-zsh/custom/themes/powerlevel10k` |
 | Ollama | Native install, `ollama.service` enabled and started |
 | llama-swap | Native install, `llama-swap.service` enabled and started, `127.0.0.1:8000` |
-| chezmoi | Installed to `/usr/local/bin/chezmoi` |
 | Hermes Agent | Installed to `~/.local/bin/hermes`, **left unconfigured** |
 
-### User level (chezmoi)
+### User level (the `dotfiles` role)
 
 | File | Source |
 |---|---|
-| `~/.bashrc` | `chezmoi/dot_bashrc` |
-| `~/.zshrc` | `chezmoi/dot_zshrc` |
-| `~/.p10k.zsh` | `chezmoi/dot_p10k.zsh` |
-| `~/.gitconfig` | `chezmoi/dot_gitconfig.tmpl` (templated identity + gh credential helper) |
+| `~/.bashrc` | `roles/dotfiles/files/bashrc` |
+| `~/.zshrc` | `roles/dotfiles/files/zshrc` |
+| `~/.p10k.zsh` | `roles/dotfiles/files/p10k.zsh` |
+| `~/.gitconfig` | `roles/dotfiles/templates/gitconfig.j2` (templated identity + gh credential helper) |
 
 ### What is NOT modified
 
@@ -343,10 +342,10 @@ Notes:
   multimedia libraries. Add it to the `tooling` role if you enable Telegram
   and want voice messages.
 - Config lives at `~/.hermes/config.yaml` — a single file, safe to commit.
-  Once you're happy with it, add it to `chezmoi/dot_hermes/config.yaml`.
-- **Never use `exact_dot_hermes/`** in chezmoi. `~/.hermes` also contains the
-  code checkout, a vendored `uv`, a vendored Node, sessions, and logs; the
-  `exact_` prefix would delete all of it.
+  Once you're happy with it, add it to the `dotfiles` role.
+- **Manage that one file, never the `~/.hermes` directory.** It also contains
+  the code checkout, a vendored `uv`, a vendored Node, sessions and logs.
+  Anything that treats the directory as a managed tree would delete all of it.
 - `~/.hermes/.env` holds API keys (`chmod 600`) and must stay out of git.
 - Hermes executes shell commands and persists skills between sessions. If you
   later enable a messaging gateway, restrict allowed user IDs — blank means
@@ -388,11 +387,9 @@ Add a role under `roles/` and list it in `site.yml`, with a tag.
 Re-run `./setup.sh` to apply.
 
 ### New dotfile
-Add a file to `chezmoi/` following
-[chezmoi naming conventions](https://www.chezmoi.io/reference/source-state-attributes/):
-
-- `dot_` prefix → `.` in the target (`dot_gitconfig` → `~/.gitconfig`)
-- `private_` prefix → permissions set to `0600`
+Add the file to `roles/dotfiles/files/` and a line to the loop in that role's
+`tasks/main.yml`. If it needs a value that differs between machines, put it in
+`templates/` as a `.j2` instead and use `ansible.builtin.template`.
 
 Re-run `./setup.sh` to apply.
 
@@ -404,11 +401,6 @@ Log out and back in so the `docker` group membership takes effect.
 ### Ansible fails to install
 ```bash
 sudo apt-get update && sudo apt-get install -y software-properties-common
-```
-
-### chezmoi conflicts
-```bash
-chezmoi apply --force
 ```
 
 ### Ollama won't start

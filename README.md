@@ -107,7 +107,7 @@ presents as a rejected key rather than a permissions problem. `chmod 700 ~/.ssh`
   I/O logging on so privileged sessions stay auditable (`sudoreplay -l`)
 - **CLI tooling** — `vim`, `zsh`, `git`, `ripgrep`, `gh`
 - **Shell** — zsh as login shell, Oh My Zsh, Powerlevel10k
-- **Dotfiles** — `~/.bashrc`, `~/.zshrc`, `~/.p10k.zsh`, applied via chezmoi
+- **Dotfiles** — `~/.bashrc`, `~/.zshrc`, `~/.p10k.zsh`, `~/.gitconfig`
 - **Tailscale** — installed and running, joined once you supply a credential. Gives the
   machine a private `100.x` address reachable from my own devices anywhere.
   SSH is unchanged — same OpenSSH, same keys; Tailscale only supplies the route.
@@ -224,8 +224,8 @@ scheduled agent work depends on it whether or not a messaging adapter exists.
 reboot.
 
 Model and tool configuration still happen by hand (`hermes model`,
-`hermes tools`); once worth keeping, check `~/.hermes/config.yaml` into
-`chezmoi/`. `~/.hermes/.env` holds credentials and never belongs in git.
+`hermes tools`); once worth keeping, add `~/.hermes/config.yaml` to the
+`dotfiles` role. `~/.hermes/.env` holds credentials and never belongs in git.
 
 ## Where things live on disk
 
@@ -238,8 +238,7 @@ Model and tool configuration still happen by hand (`hermes model`,
 | llama-swap config | `/etc/llama-swap/config.yaml` (from `workloads/llama-swap/config.yaml`) |
 | llama-swap service | `/etc/systemd/system/llama-swap.service` |
 | HuggingFace model cache | `~/.cache/huggingface/hub` (bind-mounted into every vLLM container) |
-| chezmoi binary | `/usr/local/bin/chezmoi` |
-| chezmoi source | the `chezmoi/` directory in this repo |
+| Dotfile sources | `roles/dotfiles/files/` and `roles/dotfiles/templates/` |
 | Oh My Zsh | `~/.oh-my-zsh` |
 | Powerlevel10k | `~/.oh-my-zsh/custom/themes/powerlevel10k` |
 
@@ -263,11 +262,10 @@ directly, without a passthrough layer in between.
 │   ├── tailscale/               # client install; joining is the secrets role
 │   ├── ollama/                  # native Ollama install + service
 │   ├── llama_swap/              # model gateway install + service
-│   ├── chezmoi/                 # chezmoi install + apply
+│   ├── dotfiles/                # shell + git config, from files
 │   ├── hermes/                  # Hermes CLI install (unconfigured)
 │   ├── hermes_profiles/         # agent profiles, from files
 │   └── secrets/                 # prompts, stores, and applies credentials
-├── chezmoi/                     # dotfile sources
 ├── profiles/                    # Hermes agent profiles: SOUL.md, config, skills
 ├── workloads/llama-swap/        # model catalogue, deployed to /etc
 └── docs/setup.md

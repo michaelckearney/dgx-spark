@@ -27,7 +27,7 @@ Commit body: who asked, what needed it, what broke without it.
 
 ## Out of bounds
 
-`profiles/` · `roles/tailscale/` · `~/.ssh/` and sshd · `chezmoi/` · secrets
+`profiles/` · `roles/tailscale/` · `~/.ssh/` and sshd · `roles/dotfiles/` · secrets
 (`~/.hermes/.env`, gh's token store, `/etc/llama-swap`)
 
 Hand these back rather than working around them.

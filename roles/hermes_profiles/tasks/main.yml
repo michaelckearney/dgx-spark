@@ -99,7 +99,7 @@
         label: "{{ item.0.name }}: {{ item.1.key }}"
 
     # force: true — the repo is authoritative for SOUL.md and config.yaml, the
-    # same contract the chezmoi role states for dotfiles. Edit the source in
+    # same contract the dotfiles role states. Edit the source in
     # profiles/<name>/, not the copy under ~/.hermes.
     - name: Install each profile's operating contract
       ansible.builtin.copy:

@@ -3,7 +3,8 @@
 # Installs baseline CLI tooling and the zsh prompt stack.
 #
 # The login shell switch deliberately does NOT happen here — it runs in
-# site.yml post_tasks, after chezmoi has applied ~/.zshrc, so the shell never
+# site.yml post_tasks, after the dotfiles role has written ~/.zshrc, so the
+# shell never
 # changes before its configuration exists.
 #
 # ffmpeg is deliberately NOT installed. The Hermes wizard offers it alongside

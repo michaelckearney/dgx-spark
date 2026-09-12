@@ -111,8 +111,8 @@ to undo it.
 ## Comment style
 
 Every non-obvious line in this repo records the failure that produced it —
-the chezmoi TTY hang, the stale apt index, `ssh-copy-id -f`, the vLLM crash
-behind a live bot. Match that. A comment saying *what* the code does is noise;
+Hermes owning its own profile permissions, the stale apt index,
+`ssh-copy-id -f`, the vLLM crash behind a live bot. Match that. A comment saying *what* the code does is noise;
 a comment saying *what broke without it* is why this repo is readable a year
 later.
 
@@ -143,7 +143,7 @@ harder to understand than the original failure.
 ## Commit messages
 
 This repo's distinguishing quality is that every non-obvious line records the
-failure that produced it — the chezmoi TTY hang, the stale apt index,
+failure that produced it — the stale apt index,
 `ssh-copy-id -f`, the vLLM crash behind a live bot. That archaeology is why it
 is readable a year later.
 
@@ -166,7 +166,7 @@ Each entry has a specific failure behind it, not a general caution:
 - **`~/.ssh/` and sshd** — same reason. Note the Spark ships `~/.ssh` as `0775`
   and sshd's `StrictModes` rejects keys from a group-writable directory, which
   presents as a rejected key rather than a permissions problem.
-- **`chezmoi/`** — chezmoi applies with `--force`, so an edit here silently
-  overwrites live dotfiles on the next converge.
+- **`roles/dotfiles/`** — written on every converge, so an edit here silently
+  replaces the user's live shell and git configuration.
 - **Secrets** — you never need to read one to change how this machine is set
   up. If a change appears to need one, it is a human's to make.
